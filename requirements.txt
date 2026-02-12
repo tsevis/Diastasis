@@ -1,0 +1,12 @@
+svgpathtools>=1.7.2
+shapely>=2.1.2
+rtree>=1.4.1
+networkx>=3.6.1
+numpy>=2.4.1
+matplotlib>=3.10.8
+tqdm>=4.64.0
+lxml>=6.0.2
+psutil>=7.2.1
+Pillow>=12.1.0
+cairosvg>=2.5.2
+pytest>=9.0.2
