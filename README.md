@@ -1,127 +1,129 @@
 # Diastasis - SVG Layer Separation Tool
 
-**Diastasis** is a sophisticated SVG processing tool that automatically separates overlapping shapes in SVG files into distinct layers based on graph coloring algorithms. This tool is particularly useful for preparing SVG files for laser cutting, 3D printing, or other manufacturing processes where overlapping elements need to be separated onto different layers to avoid interference.
+**Diastasis** is an SVG processing tool that separates complex overlapping artwork into manufacturable layers.
+It supports strict non-overlap workflows, configurable flat separation rules, and visible-boundary clipping for stacked SVG artwork.
 
 ## Features
 
-- **Automatic Layer Separation**: Automatically detects overlapping shapes in SVG files and assigns them to different layers
-- **Multiple Coloring Algorithms**: Choose from various graph coloring algorithms including DSATUR, Largest First, Independent Set, and more
-- **Optimization Options**: Apply post-processing optimization to minimize the number of layers
-- **Force K Algorithm**: Force the output to a specific number of layers, minimizing overlap within each layer
-- **Visual Preview**: Built-in GUI with SVG preview functionality
-- **Crop Marks Generation**: Automatically adds crop marks to facilitate alignment during manufacturing
-- **Multi-threaded Processing**: Efficient processing using spatial indexing and parallel computation
+- **Two processing modes**
+  - **Overlaid Complexity**: classic overlap-graph separation for layered output.
+  - **Flat Complexity**: area-exclusive separation with configurable touch rules.
+- **Shared GUI workflow**: one file picker + one preview used across both modes.
+- **Multiple graph-coloring algorithms**: `largest_first`, `smallest_last`, `independent_set`, `DSATUR`, `random_sequential`, `connected_sequential_bfs`, `connected_sequential_dfs`, `force_k`.
+- **Flat touch policies**
+  - `No edge/corner touching` (strict)
+  - `Allow corner touching` (point-only corner contacts may share layer)
+- **Flat overlap priority**
+  - `Source order`
+  - `Largest first`
+  - `Smallest first`
+- **Visible boundary clipping**: optional clipping of each shape to only its actually visible area based on SVG stacking.
+- **Force-K in Flat mode**: allowed as a soft-constrained mode (can introduce conflict pairs when `k` is too small), with conflict stats reported.
+- **Export options**
+  - Multi-layer SVG export (`Save Layers As...`)
+  - Single clipped layer SVG export (`Save Clipped 1-Layer As...`)
+- **Crop marks generation** in layered export.
+- **Efficient geometry processing** via Shapely + R-tree spatial indexing.
 
 ## Installation
 
-1. Clone the repository:
+1. Clone repository:
+
 ```bash
-git clone https://github.com/tsevis/diastasis.git
-cd diastasis
+git clone https://github.com/tsevis/Diastasis.git
+cd Diastasis
 ```
 
-2. Install the required dependencies:
+2. Install dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
 
 ## Usage
 
-### GUI Mode (Recommended)
+### GUI (recommended)
 
-Launch the graphical interface:
 ```bash
 python gui.py
 ```
 
-Or run the shell script:
+Or:
+
 ```bash
 ./run_gui.sh
 ```
 
-The GUI provides the following functionality:
-- Select SVG files for processing
-- Choose from multiple graph coloring algorithms
-- Configure optimization settings
-- Preview the input SVG
-- View processing results and statistics
-- Save the layered output
+### GUI workflow
 
-### Command Line Mode
+1. Select an SVG file.
+2. Choose mode:
+   - **Overlaid Complexity**
+   - **Flat Complexity**
+3. (Optional) Enable **Clip Shapes To Visible Boundaries**.
+4. Configure algorithm/settings for the active mode.
+5. Click **Process**.
+6. Export with either:
+   - **Save Layers As...**
+   - **Save Clipped 1-Layer As...**
 
-You can also use the tool programmatically by importing the main functions:
+## Flat Complexity Details
+
+Flat mode is designed for strict area exclusivity and controllable adjacency constraints.
+
+### Touch Policy
+
+- **No edge/corner touching**: any intersection/touch is treated as conflict.
+- **Allow corner touching**: point-only corner contacts are allowed in same layer.
+
+### Overlap Priority
+
+Controls who keeps contested overlapping regions during flattening:
+
+- **Source order**: follows SVG visual stacking (top-most keeps area).
+- **Largest first**: larger shapes keep contested regions first.
+- **Smallest first**: smaller/detail shapes keep contested regions first.
+
+### Force-K behavior in Flat mode
+
+`force_k` is intentionally **soft-constrained** in Flat mode:
+
+- It targets exactly `k` layers.
+- If `k` is below strict feasibility, it still runs and minimizes conflicts.
+- Summary reports:
+  - minimum proven required layers (clique lower bound)
+  - target `k`
+  - introduced conflict-pair count
+
+## Programmatic Usage
 
 ```python
-from main import run_diastasis, save_layers_to_files
+from main import run_diastasis, save_layers_to_files, save_single_layer_file
 
-# Process an SVG file
-shapes, coloring, summary, svg_width, svg_height = run_diastasis(
-    "input.svg", 
-    algorithm="DSATUR", 
-    use_optimizer=True
+shapes, coloring, summary, w, h = run_diastasis(
+    "input.svg",
+    mode="flat",
+    flat_algorithm="DSATUR",
+    flat_touch_policy="any_touch",           # or "edge_or_overlap"
+    flat_priority_order="source",            # or "largest_first", "smallest_first"
+    clip_visible_boundaries=True,
 )
 
-# Save the results
-save_layers_to_files(
-    shapes, 
-    coloring, 
-    "output_directory", 
-    "output_filename", 
-    svg_width, 
-    svg_height
-)
+save_layers_to_files(shapes, coloring, "output", "job", w, h)
+save_single_layer_file(shapes, "output/job_single.svg", w, h)
 ```
-
-## Algorithms
-
-The tool implements several graph coloring algorithms:
-
-- **Largest First (Welsh-Powell)**: Fast algorithm that colors nodes with the most neighbors first
-- **DSATUR**: Good balance of speed and quality, prioritizes nodes with the most distinctly colored neighbors
-- **Independent Set**: Potentially very high quality, finds groups of non-overlapping shapes to color at once
-- **Smallest Last**: Good quality, colors nodes in reverse order of their removal in a graph simplification process
-- **Random Sequential**: Fastest but least optimal, colors nodes in a random order
-- **Connected Sequential BFS/DFS**: Colors nodes based on Breadth-First or Depth-First Search traversal
-- **Force K**: Forces the output to a specific number of layers, minimizing overlap within each layer
-
-## How It Works
-
-1. **Parsing**: The SVG file is parsed to extract geometric shapes (rectangles, circles, ellipses, polygons, paths)
-2. **Overlap Detection**: The system detects overlapping shapes and calculates overlap areas using spatial indexing
-3. **Graph Construction**: A graph is built where each node represents a shape and edges represent overlaps
-4. **Graph Coloring**: The graph is colored using the selected algorithm, where each color represents a layer
-5. **Layer Assignment**: Shapes are assigned to layers based on their color, ensuring no overlapping shapes share the same layer
-6. **Output Generation**: A new SVG file is created with shapes organized into separate layers
-
-## Output
-
-The processed SVG file contains:
-- Separate layers for non-overlapping shapes
-- Color-coded shapes for easy identification
-- Crop marks for alignment during manufacturing
-- Proper SVG structure compatible with design software like Adobe Illustrator
 
 ## Dependencies
 
-- `svgpathtools`: For parsing SVG path data
-- `shapely`: For geometric operations and spatial analysis
-- `rtree`: For spatial indexing to accelerate overlap detection
-- `networkx`: For graph construction and coloring algorithms
-- `numpy`: For numerical computations
-- `lxml`: For XML parsing of SVG files
-- `Pillow` and `cairosvg`: For SVG preview in the GUI
-- `matplotlib`: For visualization (optional)
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+- `svgpathtools`
+- `shapely`
+- `rtree`
+- `networkx`
+- `numpy`
+- `lxml`
+- `Pillow`
+- `cairosvg`
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgments
-
-- The graph coloring algorithms are implemented using NetworkX
-- Geometric operations are powered by Shapely
-- SVG parsing uses svgpathtools and lxml
+MIT (see `LICENSE` if present in your repository).

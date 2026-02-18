@@ -37,10 +37,8 @@ class GeometryEngine:
 
     def detect_overlaps_spatial(self, shapes: List[Shape]) -> List[Tuple[int, int, float]]:
         """Detects overlaps using a spatial index."""
-        self.build_spatial_index(shapes)
         overlaps = []
-        # Use combinations to avoid duplicate checks
-        for i, j in combinations(range(len(shapes)), 2):
+        for i, j in self._candidate_pairs(shapes):
             shape1 = shapes[i]
             shape2 = shapes[j]
             # Check if bounding boxes intersect first
@@ -52,6 +50,25 @@ class GeometryEngine:
                     if overlap_area > 0:
                         overlaps.append((i, j, overlap_area))
         return overlaps
+
+    def detect_contacts(self, shapes: List[Shape], touch_policy: str = "any_touch") -> List[Tuple[int, int]]:
+        """
+        Detects all shape pairs that should be treated as conflicting contacts.
+
+        touch_policy:
+            - "any_touch": edge touch, corner touch, or overlap are all conflicts.
+            - "edge_or_overlap": only shared edge/segment or overlap are conflicts;
+              corner-only (point) touches are allowed.
+        """
+        contacts = []
+        for i, j in self._candidate_pairs(shapes):
+            shape1 = shapes[i]
+            shape2 = shapes[j]
+            bbox1 = box(*shape1.geometry.bounds)
+            bbox2 = box(*shape2.geometry.bounds)
+            if bbox1.intersects(bbox2) and self._is_contact_conflict(shape1.geometry, shape2.geometry, touch_policy):
+                contacts.append((i, j))
+        return contacts
 
     def parallel_overlap_detection(self, shapes: List[Shape]) -> List[Tuple[int, int, float]]:
         """Detects overlaps in parallel and calculates their area."""
@@ -67,3 +84,38 @@ class GeometryEngine:
         if shape1.geometry.intersects(shape2.geometry):
             return shape1.geometry.intersection(shape2.geometry).area
         return 0.0
+
+    def _candidate_pairs(self, shapes: List[Shape]) -> List[Tuple[int, int]]:
+        """
+        Returns candidate shape index pairs using the configured strategy.
+        """
+        if not self.use_spatial_index:
+            return list(combinations(range(len(shapes)), 2))
+
+        self.build_spatial_index(shapes)
+        seen = set()
+        pairs = []
+        for i, shape in enumerate(shapes):
+            for j in self.idx.intersection(shape.geometry.bounds):
+                if j <= i:
+                    continue
+                key = (i, j)
+                if key not in seen:
+                    seen.add(key)
+                    pairs.append(key)
+        return pairs
+
+    def _is_contact_conflict(self, geom1: Polygon, geom2: Polygon, touch_policy: str) -> bool:
+        if not geom1.intersects(geom2):
+            return False
+
+        intersection = geom1.intersection(geom2)
+        if intersection.is_empty:
+            return False
+
+        if touch_policy == "edge_or_overlap":
+            # Overlap area or line/segment touch are conflicts.
+            # Corner-only point contact has zero area and zero length and is allowed.
+            return intersection.area > 0 or intersection.length > 0
+
+        return True

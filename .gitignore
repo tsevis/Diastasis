@@ -1,0 +1,13 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Test/build artifacts
+.pytest_cache/
+
+# macOS
+.DS_Store
+
+# Local tool metadata
+.claude/
+.nanocoder/
