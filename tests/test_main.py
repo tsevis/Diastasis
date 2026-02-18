@@ -1,5 +1,5 @@
 import pytest
-from shapely.geometry import box
+from shapely.geometry import Polygon, box
 
 from geometry_engine import GeometryEngine
 from main import (
@@ -205,6 +205,18 @@ def test_save_single_layer_file_writes_svg(tmp_path):
     assert "<svg" in content
     assert 'id="Single_Clipped_Layer"' in content
     assert content.count("<path") >= 2
+
+
+def test_clip_shapes_to_visible_boundaries_handles_invalid_geometry():
+    bowtie = Polygon([(0, 0), (2, 2), (0, 2), (2, 0), (0, 0)])  # self-intersecting
+    valid = box(0, 0, 1, 1)
+    shapes = [
+        Shape(id=0, geometry=bowtie, metadata={}),
+        Shape(id=1, geometry=valid, metadata={}),
+    ]
+
+    clipped = clip_shapes_to_visible_boundaries(shapes)
+    assert clipped is not None
 
 
 def test_get_shape_fill_prefers_metadata_fill_then_style():
