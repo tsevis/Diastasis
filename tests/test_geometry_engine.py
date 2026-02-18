@@ -78,3 +78,15 @@ def test_detect_contacts_corner_touch_allowed_policy():
 
     assert strict_contacts == [(0, 1)]
     assert corner_allowed_contacts == []
+
+
+def test_detect_contacts_handles_invalid_geometry():
+    engine = GeometryEngine(use_spatial_index=True)
+    bowtie = Polygon([(0, 0), (2, 2), (0, 2), (2, 0), (0, 0)])  # invalid
+    shapes = [
+        Shape(id=0, geometry=bowtie, metadata={}),
+        Shape(id=1, geometry=box(0, 0, 1, 1), metadata={}),
+    ]
+
+    contacts = engine.detect_contacts(shapes, touch_policy="any_touch")
+    assert isinstance(contacts, list)
