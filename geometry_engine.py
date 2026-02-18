@@ -1,5 +1,6 @@
 from typing import Iterable, List, Tuple
 from shapely.geometry import Polygon
+from shapely.validation import make_valid
 from rtree import index
 from svg_parser import Shape
 import multiprocessing
@@ -42,8 +43,10 @@ class GeometryEngine:
             shape1 = shapes[i]
             shape2 = shapes[j]
             if self._bounds_intersect(shape1.geometry.bounds, shape2.geometry.bounds):
-                if shape1.geometry.intersects(shape2.geometry):
-                    overlap_area = shape1.geometry.intersection(shape2.geometry).area
+                g1 = self._sanitize_geometry(shape1.geometry)
+                g2 = self._sanitize_geometry(shape2.geometry)
+                if g1.intersects(g2):
+                    overlap_area = g1.intersection(g2).area
                     if overlap_area > 0:
                         overlaps.append((i, j, overlap_area))
         return overlaps
@@ -78,8 +81,10 @@ class GeometryEngine:
 
     def calculate_overlap_area(self, shape1: Shape, shape2: Shape) -> float:
         """Calculates the overlap area between two shapes."""
-        if shape1.geometry.intersects(shape2.geometry):
-            return shape1.geometry.intersection(shape2.geometry).area
+        g1 = self._sanitize_geometry(shape1.geometry)
+        g2 = self._sanitize_geometry(shape2.geometry)
+        if g1.intersects(g2):
+            return g1.intersection(g2).area
         return 0.0
 
     def _candidate_pairs(self, shapes: List[Shape]) -> Iterable[Tuple[int, int]]:
@@ -104,6 +109,9 @@ class GeometryEngine:
         return not (b1[2] < b2[0] or b2[2] < b1[0] or b1[3] < b2[1] or b2[3] < b1[1])
 
     def _is_contact_conflict(self, geom1: Polygon, geom2: Polygon, touch_policy: str) -> bool:
+        geom1 = self._sanitize_geometry(geom1)
+        geom2 = self._sanitize_geometry(geom2)
+
         # Fast path for the default policy: any contact is a conflict.
         if touch_policy == "any_touch":
             return geom1.intersects(geom2)
@@ -121,3 +129,20 @@ class GeometryEngine:
             return intersection.area > 0 or intersection.length > 0
 
         return True
+
+    def _sanitize_geometry(self, geom: Polygon) -> Polygon:
+        if geom.is_valid:
+            return geom
+        try:
+            repaired = make_valid(geom)
+            if not repaired.is_empty:
+                return repaired
+        except Exception:
+            pass
+        try:
+            repaired = geom.buffer(0)
+            if not repaired.is_empty:
+                return repaired
+        except Exception:
+            pass
+        return geom
