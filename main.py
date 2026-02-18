@@ -3,6 +3,7 @@ from collections import defaultdict
 import networkx as nx
 from networkx.algorithms.approximation import clique
 from shapely.geometry import Polygon, MultiPolygon, GeometryCollection
+from shapely.validation import make_valid
 from graph_solver import GraphSolver
 from svg_parser import SVGParser, Shape
 from geometry_engine import GeometryEngine
@@ -140,6 +141,63 @@ def flat_conflict_count(graph, coloring):
     return conflicts
 
 
+def _sanitize_geometry(geometry):
+    if geometry is None or geometry.is_empty:
+        return geometry
+    if geometry.is_valid:
+        return geometry
+
+    try:
+        repaired = make_valid(geometry)
+        if not repaired.is_empty:
+            return repaired
+    except Exception:
+        pass
+
+    try:
+        repaired = geometry.buffer(0)
+        if not repaired.is_empty:
+            return repaired
+    except Exception:
+        pass
+
+    return geometry
+
+
+def _safe_difference(geom, mask):
+    geom = _sanitize_geometry(geom)
+    mask = _sanitize_geometry(mask)
+    if geom is None or geom.is_empty:
+        return geom
+    if mask is None or mask.is_empty:
+        return geom
+
+    try:
+        return geom.difference(mask)
+    except Exception:
+        try:
+            return _sanitize_geometry(geom).difference(_sanitize_geometry(mask))
+        except Exception:
+            return geom
+
+
+def _safe_union(geom_a, geom_b):
+    geom_a = _sanitize_geometry(geom_a)
+    geom_b = _sanitize_geometry(geom_b)
+    if geom_a is None or geom_a.is_empty:
+        return geom_b
+    if geom_b is None or geom_b.is_empty:
+        return geom_a
+
+    try:
+        return geom_a.union(geom_b)
+    except Exception:
+        try:
+            return _sanitize_geometry(geom_a).union(_sanitize_geometry(geom_b))
+        except Exception:
+            return geom_a
+
+
 def clip_shapes_to_visible_boundaries(shapes):
     """
     Clip each shape to its visible area according to SVG paint order.
@@ -151,17 +209,16 @@ def clip_shapes_to_visible_boundaries(shapes):
     # Traverse top-to-bottom (reverse source order).
     for idx in range(len(shapes) - 1, -1, -1):
         shape = shapes[idx]
-        geometry = shape.geometry
+        geometry = _sanitize_geometry(shape.geometry)
         if occluders is not None and not occluders.is_empty:
-            geometry = geometry.difference(occluders)
+            geometry = _safe_difference(geometry, occluders)
 
         if not geometry.is_empty:
-            if not geometry.is_valid:
-                geometry = geometry.buffer(0)
+            geometry = _sanitize_geometry(geometry)
             if not geometry.is_empty:
                 visible_by_index[idx] = geometry
 
-        occluders = shape.geometry if occluders is None else occluders.union(shape.geometry)
+        occluders = _safe_union(occluders, shape.geometry)
 
     clipped_shapes = []
     for idx, shape in enumerate(shapes):
@@ -208,15 +265,14 @@ def make_shapes_area_disjoint(shapes, priority_order="source"):
     occupied = None
 
     for shape in ordered_shapes:
-        geometry = shape.geometry
+        geometry = _sanitize_geometry(shape.geometry)
         if occupied is not None and not occupied.is_empty:
-            geometry = geometry.difference(occupied)
+            geometry = _safe_difference(geometry, occupied)
 
         if geometry.is_empty:
             continue
 
-        if not geometry.is_valid:
-            geometry = geometry.buffer(0)
+        geometry = _sanitize_geometry(geometry)
         if geometry.is_empty:
             continue
 
@@ -230,7 +286,7 @@ def make_shapes_area_disjoint(shapes, priority_order="source"):
             )
         )
 
-        occupied = geometry if occupied is None else occupied.union(geometry)
+        occupied = _safe_union(occupied, geometry)
 
     return disjoint_shapes
 
