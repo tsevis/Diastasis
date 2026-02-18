@@ -1,101 +1,95 @@
 # Diastasis - SVG Layer Separation Tool
 
-**Diastasis** is an SVG processing tool that separates complex overlapping artwork into manufacturable layers.
-It supports strict non-overlap workflows, configurable flat separation rules, and visible-boundary clipping for stacked SVG artwork.
+Diastasis separates complex SVG artwork into production-ready layers.
+It supports strict area-exclusion workflows, optional visible-boundary clipping, and configurable Flat/Overlaid strategies for heavy real-world files.
 
 ## Features
 
-- **Two processing modes**
-  - **Overlaid Complexity**: classic overlap-graph separation for layered output.
-  - **Flat Complexity**: area-exclusive separation with configurable touch rules.
-- **Shared GUI workflow**: one file picker + one preview used across both modes.
-- **Multiple graph-coloring algorithms**: `largest_first`, `smallest_last`, `independent_set`, `DSATUR`, `random_sequential`, `connected_sequential_bfs`, `connected_sequential_dfs`, `force_k`.
-- **Flat touch policies**
+- Two processing modes:
+  - **Overlaid Complexity**: overlap-aware graph coloring for layered output.
+  - **Flat Complexity**: area-exclusive separation with configurable adjacency constraints.
+- Shared GUI workflow: one file picker + one preview across both modes.
+- Multiple coloring algorithms: `largest_first`, `smallest_last`, `independent_set`, `DSATUR`, `random_sequential`, `connected_sequential_bfs`, `connected_sequential_dfs`, `force_k`.
+- Flat touch policies:
   - `No edge/corner touching` (strict)
-  - `Allow corner touching` (point-only corner contacts may share layer)
-- **Flat overlap priority**
-  - `Source order`
+  - `Allow corner touching` (point-only corner contacts may share a layer)
+- Flat overlap priority:
+  - `Source order` (SVG visual stack aware)
   - `Largest first`
   - `Smallest first`
-- **Visible boundary clipping**: optional clipping of each shape to only its actually visible area based on SVG stacking.
-- **Force-K in Flat mode**: allowed as a soft-constrained mode (can introduce conflict pairs when `k` is too small), with conflict stats reported.
-- **Export options**
-  - Multi-layer SVG export (`Save Layers As...`)
-  - Single clipped layer SVG export (`Save Clipped 1-Layer As...`)
-- **Crop marks generation** in layered export.
-- **Efficient geometry processing** via Shapely + R-tree spatial indexing.
+- **Visible boundary clipping**: clip each shape to only the area actually visible in stacked SVG artwork.
+- **Original color preservation with clipping**:
+  - clipped exports preserve shape fill colors from SVG metadata/style.
+- Flat `force_k` is soft-constrained:
+  - if `k` is too low, it still runs and minimizes conflicts.
+  - summary reports lower bound + conflict count.
+- Export options:
+  - `Save Layers As...` (multi-layer SVG)
+  - `Save Clipped 1-Layer As...` (single-layer clipped SVG)
+- Crop marks generation in layered export.
+- Performance improvements for heavy files:
+  - faster bounds checks
+  - reduced duplicate graph builds
+  - safer recursion fallback in coloring strategies
 
 ## Installation
-
-1. Clone repository:
 
 ```bash
 git clone https://github.com/tsevis/Diastasis.git
 cd Diastasis
-```
-
-2. Install dependencies:
-
-```bash
 pip install -r requirements.txt
 ```
 
 ## Usage
 
-### GUI (recommended)
+### GUI
 
 ```bash
 python gui.py
 ```
 
-Or:
+or
 
 ```bash
 ./run_gui.sh
 ```
 
-### GUI workflow
+### Typical workflow
 
-1. Select an SVG file.
-2. Choose mode:
-   - **Overlaid Complexity**
-   - **Flat Complexity**
-3. (Optional) Enable **Clip Shapes To Visible Boundaries**.
-4. Configure algorithm/settings for the active mode.
-5. Click **Process**.
-6. Export with either:
-   - **Save Layers As...**
-   - **Save Clipped 1-Layer As...**
+1. Select SVG.
+2. Choose mode (`Overlaid Complexity` or `Flat Complexity`).
+3. Optional: enable `Clip Shapes To Visible Boundaries`.
+4. Set mode-specific options.
+5. Click `Process`.
+6. Export:
+   - `Save Layers As...`
+   - `Save Clipped 1-Layer As...`
 
-## Flat Complexity Details
+## Flat Complexity Notes
 
-Flat mode is designed for strict area exclusivity and controllable adjacency constraints.
+### Touch policy
 
-### Touch Policy
+- `No edge/corner touching`: any contact is a conflict.
+- `Allow corner touching`: corner-only point contacts are allowed.
 
-- **No edge/corner touching**: any intersection/touch is treated as conflict.
-- **Allow corner touching**: point-only corner contacts are allowed in same layer.
+### Overlap priority
 
-### Overlap Priority
+Controls who keeps contested area during flattening:
 
-Controls who keeps contested overlapping regions during flattening:
+- `Source order`: top-most SVG paint order wins.
+- `Largest first`: larger regions are preserved first.
+- `Smallest first`: detail shapes are preserved first.
 
-- **Source order**: follows SVG visual stacking (top-most keeps area).
-- **Largest first**: larger shapes keep contested regions first.
-- **Smallest first**: smaller/detail shapes keep contested regions first.
+### force_k behavior
 
-### Force-K behavior in Flat mode
+`force_k` in Flat mode allows conflicts when needed and minimizes them.
+Summary includes:
 
-`force_k` is intentionally **soft-constrained** in Flat mode:
+- minimum proven required layers
+- `force_k` target
+- conflict pairs introduced
 
-- It targets exactly `k` layers.
-- If `k` is below strict feasibility, it still runs and minimizes conflicts.
-- Summary reports:
-  - minimum proven required layers (clique lower bound)
-  - target `k`
-  - introduced conflict-pair count
-
-## Programmatic Usage
+## Programmatic usage
 
 ```python
 from main import run_diastasis, save_layers_to_files, save_single_layer_file
@@ -104,12 +98,23 @@ shapes, coloring, summary, w, h = run_diastasis(
     "input.svg",
     mode="flat",
     flat_algorithm="DSATUR",
-    flat_touch_policy="any_touch",           # or "edge_or_overlap"
-    flat_priority_order="source",            # or "largest_first", "smallest_first"
+    flat_touch_policy="any_touch",        # or "edge_or_overlap"
+    flat_priority_order="source",         # or "largest_first", "smallest_first"
     clip_visible_boundaries=True,
 )
 
-save_layers_to_files(shapes, coloring, "output", "job", w, h)
+# Multi-layer export
+save_layers_to_files(
+    shapes,
+    coloring,
+    "output",
+    "job",
+    w,
+    h,
+    preserve_original_colors=True,
+)
+
+# Single-layer clipped export
 save_single_layer_file(shapes, "output/job_single.svg", w, h)
 ```
 
@@ -126,4 +131,4 @@ save_single_layer_file(shapes, "output/job_single.svg", w, h)
 
 ## License
 
-MIT (see `LICENSE` if present in your repository).
+MIT (see `LICENSE` if present in repository).
