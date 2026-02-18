@@ -1,5 +1,5 @@
-from typing import List, Tuple
-from shapely.geometry import Polygon, box
+from typing import Iterable, List, Tuple
+from shapely.geometry import Polygon
 from rtree import index
 from svg_parser import Shape
 import multiprocessing
@@ -41,10 +41,7 @@ class GeometryEngine:
         for i, j in self._candidate_pairs(shapes):
             shape1 = shapes[i]
             shape2 = shapes[j]
-            # Check if bounding boxes intersect first
-            bbox1 = box(*shape1.geometry.bounds)
-            bbox2 = box(*shape2.geometry.bounds)
-            if bbox1.intersects(bbox2):
+            if self._bounds_intersect(shape1.geometry.bounds, shape2.geometry.bounds):
                 if shape1.geometry.intersects(shape2.geometry):
                     overlap_area = shape1.geometry.intersection(shape2.geometry).area
                     if overlap_area > 0:
@@ -64,9 +61,9 @@ class GeometryEngine:
         for i, j in self._candidate_pairs(shapes):
             shape1 = shapes[i]
             shape2 = shapes[j]
-            bbox1 = box(*shape1.geometry.bounds)
-            bbox2 = box(*shape2.geometry.bounds)
-            if bbox1.intersects(bbox2) and self._is_contact_conflict(shape1.geometry, shape2.geometry, touch_policy):
+            if self._bounds_intersect(shape1.geometry.bounds, shape2.geometry.bounds) and self._is_contact_conflict(
+                shape1.geometry, shape2.geometry, touch_policy
+            ):
                 contacts.append((i, j))
         return contacts
 
@@ -85,16 +82,15 @@ class GeometryEngine:
             return shape1.geometry.intersection(shape2.geometry).area
         return 0.0
 
-    def _candidate_pairs(self, shapes: List[Shape]) -> List[Tuple[int, int]]:
+    def _candidate_pairs(self, shapes: List[Shape]) -> Iterable[Tuple[int, int]]:
         """
         Returns candidate shape index pairs using the configured strategy.
         """
         if not self.use_spatial_index:
-            return list(combinations(range(len(shapes)), 2))
+            return combinations(range(len(shapes)), 2)
 
         self.build_spatial_index(shapes)
         seen = set()
-        pairs = []
         for i, shape in enumerate(shapes):
             for j in self.idx.intersection(shape.geometry.bounds):
                 if j <= i:
@@ -102,10 +98,16 @@ class GeometryEngine:
                 key = (i, j)
                 if key not in seen:
                     seen.add(key)
-                    pairs.append(key)
-        return pairs
+                    yield key
+
+    def _bounds_intersect(self, b1, b2) -> bool:
+        return not (b1[2] < b2[0] or b2[2] < b1[0] or b1[3] < b2[1] or b2[3] < b1[1])
 
     def _is_contact_conflict(self, geom1: Polygon, geom2: Polygon, touch_policy: str) -> bool:
+        # Fast path for the default policy: any contact is a conflict.
+        if touch_policy == "any_touch":
+            return geom1.intersects(geom2)
+
         if not geom1.intersects(geom2):
             return False
 

@@ -177,4 +177,6 @@ class SVGParser:
             'style': element.get('style'),
             'transform': element.get('transform'),
             'id': element.get('id'),
+            'fill': element.get('fill'),
+            'stroke': element.get('stroke'),
         }

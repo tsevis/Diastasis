@@ -107,3 +107,23 @@ def test_empty_graph():
 
     num_layers = solver.get_num_layers(coloring)
     assert num_layers == 0
+
+
+def test_solve_coloring_recursion_error_fallback_to_dsatur(monkeypatch):
+    solver = GraphSolver()
+    graph = nx.Graph()
+    graph.add_edges_from([(0, 1), (1, 2), (2, 3)])
+
+    original_greedy_color = nx.greedy_color
+
+    def patched_greedy_color(g, strategy):
+        if strategy == "connected_sequential_dfs":
+            raise RecursionError("simulated recursion depth")
+        return original_greedy_color(g, strategy=strategy)
+
+    monkeypatch.setattr(nx, "greedy_color", patched_greedy_color)
+    coloring = solver.solve_coloring(graph, algorithm="connected_sequential_dfs")
+
+    assert len(coloring) == 4
+    for u, v in graph.edges():
+        assert coloring[u] != coloring[v]

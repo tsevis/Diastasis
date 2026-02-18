@@ -54,8 +54,16 @@ class GraphSolver:
                 raise ValueError("A positive number of layers must be provided for 'force_k' algorithm.")
             return self.force_k_coloring(graph, num_layers)
 
-        # Use the highly optimized greedy_color function from NetworkX
-        coloring = nx.greedy_color(graph, strategy=algorithm)
+        # Use the highly optimized greedy_color function from NetworkX.
+        # Some strategies (notably deep DFS traversals) may hit Python recursion
+        # limits on very large/complex graphs; fallback to DSATUR for robustness.
+        try:
+            coloring = nx.greedy_color(graph, strategy=algorithm)
+        except RecursionError:
+            if algorithm != "DSATUR":
+                coloring = nx.greedy_color(graph, strategy="DSATUR")
+            else:
+                raise
 
         if use_optimizer:
             coloring = self.optimize_coloring(graph, coloring)

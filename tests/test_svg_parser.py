@@ -86,8 +86,10 @@ def test_convert_to_polygon_path():
 def test_preserve_metadata():
     parser = SVGParser()
     from lxml import etree
-    element = etree.fromstring('<rect id="test_id" style="fill:red;" transform="translate(10,10)" />')
+    element = etree.fromstring('<rect id="test_id" style="fill:red;" transform="translate(10,10)" fill="#123456" stroke="#654321" />')
     metadata = parser.preserve_metadata(element)
     assert metadata['id'] == 'test_id'
     assert metadata['style'] == 'fill:red;'
     assert metadata['transform'] == 'translate(10,10)'
+    assert metadata['fill'] == '#123456'
+    assert metadata['stroke'] == '#654321'

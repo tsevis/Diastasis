@@ -7,6 +7,7 @@ from main import (
     build_flat_conflict_graph,
     clip_shapes_to_visible_boundaries,
     flat_layer_lower_bound,
+    get_shape_fill,
     make_shapes_area_disjoint,
     polygon_to_svg_path_d,
     run_diastasis,
@@ -204,3 +205,14 @@ def test_save_single_layer_file_writes_svg(tmp_path):
     assert "<svg" in content
     assert 'id="Single_Clipped_Layer"' in content
     assert content.count("<path") >= 2
+
+
+def test_get_shape_fill_prefers_metadata_fill_then_style():
+    shape_with_fill = Shape(id=0, geometry=box(0, 0, 1, 1), metadata={"fill": "#112233", "style": "fill:#ff0000;"})
+    assert get_shape_fill(shape_with_fill, fallback_color="#000000") == "#112233"
+
+    shape_with_style = Shape(id=1, geometry=box(0, 0, 1, 1), metadata={"style": "stroke:#000; fill: rgb(10,20,30);"})
+    assert get_shape_fill(shape_with_style, fallback_color="#000000") == "rgb(10,20,30)"
+
+    shape_none = Shape(id=2, geometry=box(0, 0, 1, 1), metadata={"fill": "none", "style": "fill:none;"})
+    assert get_shape_fill(shape_none, fallback_color="#000000") == "#000000"

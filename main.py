@@ -7,6 +7,7 @@ from graph_solver import GraphSolver
 from svg_parser import SVGParser, Shape
 from geometry_engine import GeometryEngine
 import random
+import re
 
 # Helper function to convert Shapely Polygon to SVG path 'd' attribute
 def polygon_to_svg_path_d(polygon):
@@ -62,6 +63,26 @@ def generate_crop_marks_svg(width, height, mark_length=10):
     return "\n".join(marks_svg)
 
 
+def get_shape_fill(shape, fallback_color="#CCCCCC"):
+    """
+    Return original shape fill color from metadata/style when available.
+    """
+    metadata = shape.metadata or {}
+
+    fill_attr = metadata.get("fill")
+    if fill_attr and str(fill_attr).strip().lower() not in ("none", "transparent"):
+        return fill_attr
+
+    style = metadata.get("style") or ""
+    style_match = re.search(r"(?:^|;)\s*fill\s*:\s*([^;]+)", style, flags=re.IGNORECASE)
+    if style_match:
+        style_fill = style_match.group(1).strip()
+        if style_fill.lower() not in ("none", "transparent"):
+            return style_fill
+
+    return fallback_color
+
+
 def build_flat_conflict_graph(shapes, geo_engine, touch_policy="any_touch"):
     """
     Build the flat-mode conflict graph where edges mean "cannot share layer".
@@ -80,11 +101,32 @@ def flat_layer_lower_bound(graph):
     """
     Return a proven lower bound for required layers in flat separation.
     """
-    if graph.number_of_nodes() == 0:
+    node_count = graph.number_of_nodes()
+    edge_count = graph.number_of_edges()
+    if node_count == 0:
         return 0
-    # Maximum clique size is a strict lower bound for chromatic number.
-    # Approximation gives a safe (possibly not tight) bound.
-    return len(clique.max_clique(graph))
+    if edge_count == 0:
+        return 1
+
+    # Start with cheap proven bounds.
+    lower_bound = 2
+
+    # Triangle presence guarantees a chromatic lower bound of at least 3.
+    try:
+        tri_counts = nx.triangles(graph)
+        if any(v > 0 for v in tri_counts.values()):
+            lower_bound = 3
+    except Exception:
+        pass
+
+    # Use tighter clique approximation only on moderate-size graphs.
+    if node_count <= 500 and edge_count <= 20000:
+        try:
+            lower_bound = max(lower_bound, len(clique.max_clique(graph)))
+        except Exception:
+            pass
+
+    return lower_bound
 
 
 def flat_conflict_count(graph, coloring):
@@ -199,7 +241,10 @@ def build_flat_coloring(shapes, geo_engine, algorithm="DSATUR", num_layers=None,
     Adjacent (touching/intersecting) shapes are forced into different layers.
     """
     graph = build_flat_conflict_graph(shapes, geo_engine, touch_policy=touch_policy)
+    return build_flat_coloring_from_graph(graph, algorithm=algorithm, num_layers=num_layers)
 
+
+def build_flat_coloring_from_graph(graph, algorithm="DSATUR", num_layers=None):
     solver = GraphSolver()
     return solver.solve_coloring(graph, algorithm=algorithm, use_optimizer=False, num_layers=num_layers)
 
@@ -238,12 +283,10 @@ def run_diastasis(
 
         graph = build_flat_conflict_graph(shapes, geo_engine, touch_policy=flat_touch_policy)
 
-        coloring = build_flat_coloring(
-            shapes,
-            geo_engine,
+        coloring = build_flat_coloring_from_graph(
+            graph,
             algorithm=flat_algorithm,
             num_layers=flat_num_layers,
-            touch_policy=flat_touch_policy,
         )
     else:
         # Use the GeometryEngine to detect overlaps and get their areas
@@ -285,7 +328,6 @@ def run_diastasis(
             "smallest_first": "Smallest first",
         }.get(flat_priority_order, "Source order")
         summary += f"Flat overlap priority: {priority_label}\n"
-        graph = build_flat_conflict_graph(shapes, geo_engine, touch_policy=flat_touch_policy)
         lower_bound = flat_layer_lower_bound(graph)
         summary += f"Flat minimum proven required layers: {lower_bound}\n"
         if flat_algorithm == "force_k" and flat_num_layers is not None:
@@ -295,8 +337,12 @@ def run_diastasis(
                 f"Flat conflict pairs introduced: {conflicts}\n"
             )
     summary += "\n"
-    for color_id in sorted(set(coloring.values())):
-        count = list(coloring.values()).count(color_id)
+    color_counts = defaultdict(int)
+    for color_id in coloring.values():
+        color_counts[color_id] += 1
+
+    for color_id in sorted(color_counts.keys()):
+        count = color_counts[color_id]
         summary += f"Color {color_id}: {count} shapes\n"
 
     # Invert coloring to group shapes by color_id for saving
@@ -308,7 +354,15 @@ def run_diastasis(
 
 
 
-def save_layers_to_files(shapes, coloring, output_dir, original_filename, svg_width, svg_height): # Updated signature
+def save_layers_to_files(
+    shapes,
+    coloring,
+    output_dir,
+    original_filename,
+    svg_width,
+    svg_height,
+    preserve_original_colors=False,
+): # Updated signature
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
@@ -348,7 +402,8 @@ def save_layers_to_files(shapes, coloring, output_dir, original_filename, svg_wi
                 path_d = polygon_to_svg_path_d(shape.geometry)
             
             if path_d: # Only add if path_d is not empty
-                layered_svg_content += f'    <path d="{path_d}" fill="{fill_color}" stroke="none"/>' + '\n'
+                path_fill = get_shape_fill(shape, fallback_color=fill_color) if preserve_original_colors else fill_color
+                layered_svg_content += f'    <path d="{path_d}" fill="{path_fill}" stroke="none"/>' + '\n'
         layered_svg_content += '  </g>' + '\n'
 
     # Add crop marks layer
@@ -385,11 +440,8 @@ def save_single_layer_file(shapes, output_filepath, svg_width, svg_height):
         if not path_d:
             continue
 
-        style = shape.metadata.get("style") if shape.metadata else None
-        if style:
-            single_layer_svg += f'    <path d="{path_d}" style="{style}" stroke="none"/>\n'
-        else:
-            single_layer_svg += f'    <path d="{path_d}" fill="#000000" stroke="none"/>\n'
+        fill = get_shape_fill(shape, fallback_color="#000000")
+        single_layer_svg += f'    <path d="{path_d}" fill="{fill}" stroke="none"/>\n'
 
     single_layer_svg += "  </g>\n</svg>\n"
 

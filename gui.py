@@ -2,6 +2,7 @@ import io
 import os
 import platform
 import threading
+import traceback
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
@@ -462,6 +463,7 @@ class DiastasisGUI:
                 self.root.after(0, lambda: self.processing_error(error_msg))
 
         except Exception as exc:
+            traceback.print_exc()
             error_msg = f"Error during processing: {exc}"
             self.root.after(0, lambda: self.processing_error(error_msg))
 
@@ -530,6 +532,7 @@ class DiastasisGUI:
                 base_filename,
                 data["svg_width"],
                 data["svg_height"],
+                preserve_original_colors=self.clip_visible_boundaries.get(),
             )
 
             messagebox.showinfo("Success", f"Layered SVG saved successfully as:\n{output_filepath}")
