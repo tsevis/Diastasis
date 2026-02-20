@@ -10,7 +10,12 @@ from cairosvg import svg2png
 from PIL import Image, ImageTk
 
 from graph_solver import GraphSolver
-from main import run_diastasis, save_layers_to_files, save_single_layer_file
+from main import (
+    estimate_processing_complexity,
+    run_diastasis,
+    save_layers_to_files,
+    save_single_layer_file,
+)
 
 
 class DiastasisGUI:
@@ -31,10 +36,14 @@ class DiastasisGUI:
         self.use_optimizer = tk.BooleanVar(value=False)
         self.num_layers = tk.IntVar(value=3)
         self.clip_visible_boundaries = tk.BooleanVar(value=False)
+        self.performance_mode = tk.BooleanVar(value=False)
+        self.quality_preset = tk.StringVar(value="Balanced")
+        self.export_profile = tk.StringVar(value="Illustrator-safe")
         self.flat_algorithm = tk.StringVar(value="DSATUR")
         self.flat_num_layers = tk.IntVar(value=3)
         self.flat_touch_policy = tk.StringVar(value="No edge/corner touching")
         self.flat_priority_order = tk.StringVar(value="Source order")
+        self.complexity_estimate = None
 
         self.results_by_mode = {
             "overlaid": None,
@@ -66,7 +75,7 @@ class DiastasisGUI:
             "fg": "#f2f2f2" if dark else "#1a1a1a",
             "surface": "#2a2a2a" if dark else "#ffffff",
             "active": "#3a3a3a" if dark else "#e8e8e8",
-            "canvas": "#b3b3b3" if dark else "white",
+            "canvas": "#808080" if dark else "white",
             "text_bg": "#2a2a2a" if dark else "#ffffff",
             "text_fg": "#f2f2f2" if dark else "#1a1a1a",
         }
@@ -115,6 +124,10 @@ class DiastasisGUI:
 
         self.appearance_btn.config(text="Light Mode" if self._theme_mode == "dark" else "Dark Mode")
         self._apply_non_macos_theme()
+        # On macOS, ttk theme colors are mostly native-managed, so explicitly set
+        # the preview canvas background to reflect dark/light mode.
+        if platform.system() == "Darwin":
+            self.preview_canvas.configure(bg=self._theme_colors()["canvas"])
 
     def create_widgets(self):
         main_frame = ttk.Frame(self.root)
@@ -129,7 +142,7 @@ class DiastasisGUI:
         content = ttk.Frame(main_frame)
         content.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        left_frame = ttk.Frame(content, width=460)
+        left_frame = ttk.Frame(content, width=560)
         left_frame.pack(side=tk.LEFT, fill=tk.Y)
         left_frame.pack_propagate(False)
 
@@ -145,6 +158,46 @@ class DiastasisGUI:
         self.filepath_label = ttk.Label(file_frame, text="No file selected", width=34)
         self.filepath_label.pack(side=tk.LEFT, padx=(10, 0))
 
+        quality_frame = ttk.Frame(left_frame)
+        quality_frame.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(quality_frame, text="Quality Preset:").pack(side=tk.LEFT, padx=(0, 8))
+        self.quality_preset_combo = ttk.Combobox(
+            quality_frame,
+            textvariable=self.quality_preset,
+            values=["Accurate", "Balanced", "Fast"],
+            state="readonly",
+            width=16,
+        )
+        self.quality_preset_combo.pack(side=tk.LEFT)
+        self.quality_preset_combo.bind("<<ComboboxSelected>>", lambda _evt: self.apply_quality_preset())
+
+        export_frame = ttk.Frame(left_frame)
+        export_frame.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(export_frame, text="Export Profile:").pack(side=tk.LEFT, padx=(0, 8))
+        self.export_profile_combo = ttk.Combobox(
+            export_frame,
+            textvariable=self.export_profile,
+            values=["Illustrator-safe", "Print", "Web"],
+            state="readonly",
+            width=16,
+        )
+        self.export_profile_combo.pack(side=tk.LEFT)
+
+        estimate_frame = ttk.Frame(left_frame)
+        estimate_frame.pack(fill=tk.X, pady=(0, 8))
+        self.estimate_button = ttk.Button(estimate_frame, text="Estimate Complexity", command=self.estimate_complexity)
+        self.estimate_button.pack(side=tk.LEFT)
+        self.batch_button = ttk.Button(estimate_frame, text="Batch Process Folder", command=self.batch_process_folder)
+        self.batch_button.pack(side=tk.LEFT, padx=(8, 0))
+
+        self.estimate_label = ttk.Label(
+            left_frame,
+            text="Complexity Report:\nNot estimated",
+            justify=tk.LEFT,
+            wraplength=540,
+        )
+        self.estimate_label.pack(fill=tk.X, pady=(0, 8))
+
         clip_frame = ttk.Frame(left_frame)
         clip_frame.pack(fill=tk.X, pady=(0, 8))
         self.clip_check = ttk.Checkbutton(
@@ -153,6 +206,15 @@ class DiastasisGUI:
             variable=self.clip_visible_boundaries,
         )
         self.clip_check.pack(anchor=tk.W)
+
+        perf_frame = ttk.Frame(left_frame)
+        perf_frame.pack(fill=tk.X, pady=(0, 8))
+        self.performance_check = ttk.Checkbutton(
+            perf_frame,
+            text="Performance Mode (for weaker systems / huge files)",
+            variable=self.performance_mode,
+        )
+        self.performance_check.pack(anchor=tk.W)
 
         self.mode_notebook = ttk.Notebook(left_frame)
         self.mode_notebook.pack(fill=tk.X)
@@ -199,6 +261,7 @@ class DiastasisGUI:
         self.preview_canvas.bind("<Configure>", self.on_preview_resize)
 
         self.on_algo_change()
+        self.apply_quality_preset()
         self._apply_non_macos_theme()
 
     def _build_overlaid_tab(self):
@@ -343,6 +406,26 @@ class DiastasisGUI:
             self.save_button.config(state="normal")
             self.save_single_button.config(state="normal")
 
+    def apply_quality_preset(self):
+        preset = self.quality_preset.get()
+        if preset == "Accurate":
+            self.algorithm.set("DSATUR")
+            self.flat_algorithm.set("DSATUR")
+            self.use_optimizer.set(True)
+            self.performance_mode.set(False)
+        elif preset == "Fast":
+            self.algorithm.set("largest_first")
+            self.flat_algorithm.set("largest_first")
+            self.use_optimizer.set(False)
+            self.performance_mode.set(True)
+        else:
+            self.algorithm.set("DSATUR")
+            self.flat_algorithm.set("DSATUR")
+            self.use_optimizer.set(False)
+            self.performance_mode.set(False)
+        self.on_algo_change()
+        self.on_flat_algo_change()
+
     def select_file(self):
         filepath = filedialog.askopenfilename(
             title="Select SVG File",
@@ -355,6 +438,34 @@ class DiastasisGUI:
             self.results_by_mode["overlaid"] = None
             self.results_by_mode["flat"] = None
             self.on_mode_change()
+            self.estimate_complexity()
+
+    def estimate_complexity(self):
+        if not self.filepath:
+            return
+        self.estimate_label.config(text="Complexity Report:\nEstimating...")
+        thread = threading.Thread(target=self._estimate_complexity_thread, daemon=True)
+        thread.start()
+
+    def _estimate_complexity_thread(self):
+        try:
+            estimate = estimate_processing_complexity(self.filepath)
+            self.root.after(0, lambda: self._set_complexity_estimate(estimate))
+        except Exception as exc:
+            self.root.after(0, lambda: self.estimate_label.config(text=f"Complexity: estimate failed ({exc})"))
+
+    def _set_complexity_estimate(self, estimate):
+        self.complexity_estimate = estimate
+        eta = estimate["eta_seconds"]
+        density = estimate["density"] * 100.0
+        self.estimate_label.config(
+            text=(
+                "Complexity Report:\n"
+                f"Level: {estimate['complexity_label']}    Shapes: {estimate['shape_count']}    "
+                f"Candidate Pairs: {estimate['candidate_pairs']}\n"
+                f"Graph Density: {density:.2f}%    Estimated Time: ~{eta:.1f}s"
+            )
+        )
 
     def display_preview(self):
         if not self.filepath:
@@ -405,6 +516,7 @@ class DiastasisGUI:
         mode = self.get_active_mode()
 
         self.process_button.config(state="disabled")
+        self.batch_button.config(state="disabled")
         self.save_button.config(state="disabled")
         self.save_single_button.config(state="disabled")
         self.progress["value"] = 0
@@ -446,6 +558,7 @@ class DiastasisGUI:
                 flat_touch_policy=flat_touch_policy,
                 flat_priority_order=flat_priority_order,
                 clip_visible_boundaries=self.clip_visible_boundaries.get(),
+                performance_mode=self.performance_mode.get(),
             )
 
             if result and len(result) >= 5:
@@ -477,6 +590,7 @@ class DiastasisGUI:
     def processing_complete(self, mode, summary):
         self.progress["value"] = 100
         self.process_button.config(state="normal")
+        self.batch_button.config(state="normal")
 
         current_mode = self.get_active_mode()
         if current_mode == mode:
@@ -491,6 +605,7 @@ class DiastasisGUI:
     def processing_error(self, error_msg):
         self.progress["value"] = 0
         self.process_button.config(state="normal")
+        self.batch_button.config(state="normal")
 
         self.results_text.delete(1.0, tk.END)
         self.results_text.insert(tk.END, f"Error: {error_msg}")
@@ -498,6 +613,109 @@ class DiastasisGUI:
         self.save_single_button.config(state="disabled")
 
         messagebox.showerror("Processing Error", error_msg)
+
+    def batch_process_folder(self):
+        input_dir = filedialog.askdirectory(title="Select Folder with SVG files")
+        if not input_dir:
+            return
+        output_dir = filedialog.askdirectory(title="Select Output Folder for Batch")
+        if not output_dir:
+            return
+
+        mode = self.get_active_mode()
+        self.results_text.delete(1.0, tk.END)
+        self.results_text.insert(tk.END, "Batch processing started...\n")
+        self.process_button.config(state="disabled")
+        self.batch_button.config(state="disabled")
+
+        thread = threading.Thread(
+            target=lambda: self._run_batch_thread(input_dir, output_dir, mode),
+            daemon=True,
+        )
+        thread.start()
+
+    def _run_batch_thread(self, input_dir, output_dir, mode):
+        svg_files = sorted(
+            f for f in os.listdir(input_dir)
+            if f.lower().endswith(".svg") and os.path.isfile(os.path.join(input_dir, f))
+        )
+        if not svg_files:
+            self.root.after(0, lambda: self.processing_error("No SVG files found in selected folder."))
+            return
+
+        failures = []
+        successes = 0
+
+        for filename in svg_files:
+            filepath = os.path.join(input_dir, filename)
+            try:
+                result = self._process_single_file(filepath, mode)
+                if not result or len(result) < 5:
+                    failures.append((filename, "Processing failed"))
+                    continue
+                shapes, coloring, _summary, svg_width, svg_height = result
+                base_filename = os.path.splitext(filename)[0] + f"_{mode}"
+                save_layers_to_files(
+                    shapes,
+                    coloring,
+                    output_dir,
+                    base_filename,
+                    svg_width,
+                    svg_height,
+                    preserve_original_colors=self.clip_visible_boundaries.get(),
+                    export_profile=self.export_profile.get(),
+                )
+                successes += 1
+            except Exception as exc:
+                failures.append((filename, str(exc)))
+
+        def finish_batch():
+            self.process_button.config(state="normal")
+            self.batch_button.config(state="normal")
+            self.save_button.config(state="disabled")
+            self.save_single_button.config(state="disabled")
+            self.results_text.insert(
+                tk.END,
+                f"\nBatch done. Success: {successes}, Failed: {len(failures)}\n",
+            )
+            for name, err in failures[:10]:
+                self.results_text.insert(tk.END, f"- {name}: {err}\n")
+            if len(failures) > 10:
+                self.results_text.insert(tk.END, f"... and {len(failures) - 10} more failures\n")
+
+        self.root.after(0, finish_batch)
+
+    def _process_single_file(self, filepath, mode):
+        algorithm = self.algorithm.get()
+        use_optimizer = self.use_optimizer.get()
+        num_layers = self.num_layers.get() if algorithm == "force_k" else None
+
+        flat_algorithm = self.flat_algorithm.get()
+        flat_num_layers = self.flat_num_layers.get() if flat_algorithm == "force_k" else None
+        flat_touch_policy = (
+            "edge_or_overlap"
+            if self.flat_touch_policy.get() == "Allow corner touching"
+            else "any_touch"
+        )
+        flat_priority_order = {
+            "Source order": "source",
+            "Largest first": "largest_first",
+            "Smallest first": "smallest_first",
+        }.get(self.flat_priority_order.get(), "source")
+
+        return run_diastasis(
+            filepath,
+            algorithm=algorithm,
+            use_optimizer=use_optimizer,
+            num_layers=num_layers,
+            mode=mode,
+            flat_algorithm=flat_algorithm,
+            flat_num_layers=flat_num_layers,
+            flat_touch_policy=flat_touch_policy,
+            flat_priority_order=flat_priority_order,
+            clip_visible_boundaries=self.clip_visible_boundaries.get(),
+            performance_mode=self.performance_mode.get(),
+        )
 
     def save_layers(self):
         mode = self.get_active_mode()
@@ -533,6 +751,7 @@ class DiastasisGUI:
                 data["svg_width"],
                 data["svg_height"],
                 preserve_original_colors=self.clip_visible_boundaries.get(),
+                export_profile=self.export_profile.get(),
             )
 
             messagebox.showinfo("Success", f"Layered SVG saved successfully as:\n{output_filepath}")

@@ -11,7 +11,7 @@ import random
 import re
 
 # Helper function to convert Shapely Polygon to SVG path 'd' attribute
-def polygon_to_svg_path_d(polygon):
+def polygon_to_svg_path_d(polygon, precision=3):
     if not polygon:
         return ""
 
@@ -34,18 +34,18 @@ def polygon_to_svg_path_d(polygon):
         # Exterior ring
         exterior_coords = poly.exterior.coords
         if exterior_coords:
-            path_data.append(f"M {exterior_coords[0][0]} {exterior_coords[0][1]}")
+            path_data.append(f"M {exterior_coords[0][0]:.{precision}f} {exterior_coords[0][1]:.{precision}f}")
             for x, y in exterior_coords[1:]:
-                path_data.append(f"L {x} {y}")
+                path_data.append(f"L {x:.{precision}f} {y:.{precision}f}")
             path_data.append("Z")
 
         # Interior rings (holes)
         for interior_ring in poly.interiors:
             interior_coords = interior_ring.coords
             if interior_coords:
-                path_data.append(f"M {interior_coords[0][0]} {interior_coords[0][1]}")
+                path_data.append(f"M {interior_coords[0][0]:.{precision}f} {interior_coords[0][1]:.{precision}f}")
                 for x, y in interior_coords[1:]:
-                    path_data.append(f"L {x} {y}")
+                    path_data.append(f"L {x:.{precision}f} {y:.{precision}f}")
                 path_data.append("Z")
 
     return " ".join(path_data)
@@ -291,6 +291,92 @@ def make_shapes_area_disjoint(shapes, priority_order="source"):
     return disjoint_shapes
 
 
+def simplify_shapes_for_performance(
+    shapes,
+    svg_width,
+    svg_height,
+    tolerance_ratio=0.0005,
+):
+    """
+    Reduce geometry complexity for very large files on weaker systems.
+    Uses topology-preserving simplify with a tolerance relative to canvas size.
+    """
+    base_size = max(float(svg_width or 0), float(svg_height or 0), 1.0)
+    tolerance = max(0.01, base_size * float(tolerance_ratio))
+
+    simplified = []
+    for shape in shapes:
+        geometry = _sanitize_geometry(shape.geometry)
+        if geometry is None or geometry.is_empty:
+            continue
+        try:
+            geometry = geometry.simplify(tolerance, preserve_topology=True)
+        except Exception:
+            pass
+        geometry = _sanitize_geometry(geometry)
+        if geometry is None or geometry.is_empty:
+            continue
+        simplified.append(
+            Shape(
+                id=len(simplified),
+                geometry=geometry,
+                metadata=shape.metadata,
+                d_attribute=None,
+            )
+        )
+
+    return simplified, tolerance
+
+
+def estimate_processing_complexity(svg_filepath):
+    """
+    Return a lightweight complexity estimate for UI/UX guidance.
+    """
+    parser = SVGParser()
+    shapes, _, _ = parser.load_svg(svg_filepath)
+    shape_count = len(shapes)
+    if shape_count <= 1:
+        return {
+            "shape_count": shape_count,
+            "candidate_pairs": 0,
+            "all_pairs": 0,
+            "density": 0.0,
+            "complexity_label": "Low",
+            "eta_seconds": 0.2,
+        }
+
+    geo_engine = GeometryEngine(use_spatial_index=True)
+    candidate_pairs = 0
+    for _ in geo_engine._candidate_pairs(shapes):
+        candidate_pairs += 1
+
+    all_pairs = (shape_count * (shape_count - 1)) // 2
+    density = (candidate_pairs / all_pairs) if all_pairs else 0.0
+
+    # Heuristic processing time model, tuned for interactive guidance only.
+    eta_seconds = 0.25 + (shape_count * 0.002) + (candidate_pairs * 0.00004)
+    if shape_count > 1500:
+        eta_seconds *= 1.5
+
+    if shape_count > 2000 or candidate_pairs > 400000:
+        label = "Very High"
+    elif shape_count > 1200 or candidate_pairs > 150000:
+        label = "High"
+    elif shape_count > 500 or candidate_pairs > 30000:
+        label = "Medium"
+    else:
+        label = "Low"
+
+    return {
+        "shape_count": shape_count,
+        "candidate_pairs": candidate_pairs,
+        "all_pairs": all_pairs,
+        "density": density,
+        "complexity_label": label,
+        "eta_seconds": eta_seconds,
+    }
+
+
 def build_flat_coloring(shapes, geo_engine, algorithm="DSATUR", num_layers=None, touch_policy="any_touch"):
     """
     Build layers by coloring the touch/intersection graph.
@@ -316,12 +402,27 @@ def run_diastasis(
     flat_touch_policy="any_touch",
     flat_priority_order="source",
     clip_visible_boundaries=False,
+    performance_mode=False,
+    performance_shape_threshold=1200,
 ):
     parser = SVGParser()
     shapes, svg_width, svg_height = parser.load_svg(svg_filepath)
 
     if not shapes:
         return None, None, "No shapes found in SVG."
+
+    original_shape_count = len(shapes)
+    used_performance_mode = False
+    performance_tolerance = 0.0
+    if performance_mode and original_shape_count >= performance_shape_threshold:
+        shapes, performance_tolerance = simplify_shapes_for_performance(
+            shapes,
+            svg_width,
+            svg_height,
+        )
+        used_performance_mode = True
+        if not shapes:
+            return None, None, "No shapes remain after performance simplification."
 
     if clip_visible_boundaries:
         shapes = clip_shapes_to_visible_boundaries(shapes)
@@ -345,8 +446,12 @@ def run_diastasis(
             num_layers=flat_num_layers,
         )
     else:
-        # Use the GeometryEngine to detect overlaps and get their areas
-        overlaps = geo_engine.detect_overlaps(shapes)
+        # For weaker systems, skip overlap area calculations unless force_k needs them.
+        if used_performance_mode and algorithm != "force_k":
+            overlap_pairs = geo_engine.detect_overlap_pairs(shapes)
+            overlaps = [(i, j, 1.0) for i, j in overlap_pairs]
+        else:
+            overlaps = geo_engine.detect_overlaps(shapes)
 
         solver = GraphSolver()
         # Build the weighted networkx graph
@@ -375,6 +480,12 @@ def run_diastasis(
     mode_label = "Flat Complexity" if mode == "flat" else "Overlaid Complexity"
     summary = f"Processing complete ({mode_label}). Used {num_colors} layers.\n"
     summary += f"Visible boundary clipping: {'Enabled' if clip_visible_boundaries else 'Disabled'}\n"
+    summary += f"Performance mode: {'Enabled' if performance_mode else 'Disabled'}\n"
+    if used_performance_mode:
+        summary += (
+            f"Performance simplification applied: {original_shape_count} -> {len(shapes)} shapes "
+            f"(tolerance: {performance_tolerance:.3f})\n"
+        )
     if mode == "flat":
         policy_label = "No edge/corner touching" if flat_touch_policy == "any_touch" else "Corners allowed"
         summary += f"Flat policy: {policy_label}\nFlat algorithm: {flat_algorithm}\n"
@@ -397,9 +508,34 @@ def run_diastasis(
     for color_id in coloring.values():
         color_counts[color_id] += 1
 
+    canvas_area = float(svg_width or 0) * float(svg_height or 0)
+    total_area = sum((shape.geometry.area if shape.geometry else 0.0) for shape in shapes)
+    tiny_threshold = canvas_area * 0.0002 if canvas_area > 0 else 0.01
+    tiny_count = sum(
+        1 for shape in shapes
+        if shape.geometry is not None and shape.geometry.area < tiny_threshold
+    )
+
+    if mode == "flat":
+        overlap_metric = graph.number_of_edges()
+        summary += f"Flat conflict graph edges: {overlap_metric}\n"
+    else:
+        overlap_metric = len(overlaps)
+        summary += f"Overlaid overlap pairs detected: {overlap_metric}\n"
+
+    summary += f"Tiny fragments (<{tiny_threshold:.3f} area): {tiny_count}\n"
+    summary += "Layer area share:\n"
+
     for color_id in sorted(color_counts.keys()):
         count = color_counts[color_id]
         summary += f"Color {color_id}: {count} shapes\n"
+        if total_area > 0:
+            layer_area = sum(
+                shapes[sid].geometry.area
+                for sid in coloring.keys()
+                if coloring[sid] == color_id and shapes[sid].geometry is not None
+            )
+            summary += f"  Area share: {(layer_area / total_area) * 100:.1f}%\n"
 
     # Invert coloring to group shapes by color_id for saving
     grouped_coloring = defaultdict(list)
@@ -418,6 +554,7 @@ def save_layers_to_files(
     svg_width,
     svg_height,
     preserve_original_colors=False,
+    export_profile="Illustrator-safe",
 ): # Updated signature
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -437,8 +574,21 @@ def save_layers_to_files(
         color_map[i] = '#%06X' % random.randint(0, 0xFFFFFF)
 
 
-    # Start building the single layered SVG content
-    layered_svg_content = f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">' + '\n'
+    profile = export_profile or "Illustrator-safe"
+    if profile == "Web":
+        path_precision = 2
+        include_crop_marks = False
+    elif profile == "Print":
+        path_precision = 4
+        include_crop_marks = True
+    else:
+        path_precision = 3
+        include_crop_marks = True
+
+    layered_svg_content = (
+        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
+        f'xmlns="http://www.w3.org/2000/svg" data-export-profile="{profile}">\n'
+    )
 
     # Sort color_ids to ensure consistent layer order
     sorted_color_ids = sorted(coloring.keys())
@@ -455,16 +605,16 @@ def save_layers_to_files(
             if shape.d_attribute: # If original d_attribute exists (for path elements)
                 path_d = shape.d_attribute
             else: # For other shapes (rect, circle, polygon) converted to Shapely Polygon
-                path_d = polygon_to_svg_path_d(shape.geometry)
+                path_d = polygon_to_svg_path_d(shape.geometry, precision=path_precision)
             
             if path_d: # Only add if path_d is not empty
                 path_fill = get_shape_fill(shape, fallback_color=fill_color) if preserve_original_colors else fill_color
                 layered_svg_content += f'    <path d="{path_d}" fill="{path_fill}" stroke="none"/>' + '\n'
         layered_svg_content += '  </g>' + '\n'
 
-    # Add crop marks layer
-    crop_marks_svg = generate_crop_marks_svg(width, height)
-    layered_svg_content += f'  <g id="Crop_Marks">' + '\n' + f'{crop_marks_svg}' + '\n' + '  </g>' + '\n' # Corrected line
+    if include_crop_marks:
+        crop_marks_svg = generate_crop_marks_svg(width, height)
+        layered_svg_content += f'  <g id="Crop_Marks">' + '\n' + f'{crop_marks_svg}' + '\n' + '  </g>' + '\n'
 
     layered_svg_content += '</svg>' + '\n' # Add a final newline for good measure
 
