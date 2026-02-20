@@ -36,6 +36,23 @@ class GeometryEngine:
         else:
             return self.parallel_overlap_detection(shapes)
 
+    def detect_overlap_pairs(self, shapes: List[Shape]) -> List[Tuple[int, int]]:
+        """
+        Detect overlap adjacency pairs without calculating overlap area.
+        """
+        pairs = []
+        for i, j in self._candidate_pairs(shapes):
+            shape1 = shapes[i]
+            shape2 = shapes[j]
+            if self._bounds_intersect(shape1.geometry.bounds, shape2.geometry.bounds):
+                g1 = self._sanitize_geometry(shape1.geometry)
+                g2 = self._sanitize_geometry(shape2.geometry)
+                if g1.intersects(g2):
+                    intersection = g1.intersection(g2)
+                    if not intersection.is_empty and intersection.area > 0:
+                        pairs.append((i, j))
+        return pairs
+
     def detect_overlaps_spatial(self, shapes: List[Shape]) -> List[Tuple[int, int, float]]:
         """Detects overlaps using a spatial index."""
         overlaps = []

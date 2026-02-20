@@ -1,36 +1,29 @@
 # Diastasis - SVG Layer Separation Tool
 
 Diastasis separates complex SVG artwork into production-ready layers.
-It supports strict area-exclusion workflows, optional visible-boundary clipping, and configurable Flat/Overlaid strategies for heavy real-world files.
 
 ## Features
 
-- Two processing modes:
-  - **Overlaid Complexity**: overlap-aware graph coloring for layered output.
-  - **Flat Complexity**: area-exclusive separation with configurable adjacency constraints.
-- Shared GUI workflow: one file picker + one preview across both modes.
-- Multiple coloring algorithms: `largest_first`, `smallest_last`, `independent_set`, `DSATUR`, `random_sequential`, `connected_sequential_bfs`, `connected_sequential_dfs`, `force_k`.
-- Flat touch policies:
-  - `No edge/corner touching` (strict)
-  - `Allow corner touching` (point-only corner contacts may share a layer)
-- Flat overlap priority:
-  - `Source order` (SVG visual stack aware)
-  - `Largest first`
-  - `Smallest first`
-- **Visible boundary clipping**: clip each shape to only the area actually visible in stacked SVG artwork.
-- **Original color preservation with clipping**:
-  - clipped exports preserve shape fill colors from SVG metadata/style.
-- Flat `force_k` is soft-constrained:
-  - if `k` is too low, it still runs and minimizes conflicts.
-  - summary reports lower bound + conflict count.
-- Export options:
-  - `Save Layers As...` (multi-layer SVG)
-  - `Save Clipped 1-Layer As...` (single-layer clipped SVG)
-- Crop marks generation in layered export.
-- Performance improvements for heavy files:
-  - faster bounds checks
-  - reduced duplicate graph builds
-  - safer recursion fallback in coloring strategies
+- Two modes:
+  - `Overlaid Complexity`: overlap-aware layering.
+  - `Flat Complexity`: strict area-exclusive separation.
+- Quality presets:
+  - `Accurate`, `Balanced`, `Fast`.
+- Complexity estimator:
+  - shape count, candidate pairs, graph density, ETA.
+- Batch mode:
+  - process all `.svg` files in a folder with current settings.
+- Export profiles:
+  - `Illustrator-safe`, `Print`, `Web`.
+- Visible-boundary clipping (`Clip Shapes To Visible Boundaries`).
+- Performance mode for weaker systems / huge files.
+- Flat controls:
+  - touch policy (`No edge/corner touching`, `Allow corner touching`)
+  - overlap priority (`Source order`, `Largest first`, `Smallest first`)
+- Layer analytics in summary:
+  - overlap/conflict count
+  - tiny fragment count
+  - per-layer area share
 
 ## Installation
 
@@ -40,70 +33,62 @@ cd Diastasis
 pip install -r requirements.txt
 ```
 
-## Usage
-
-### GUI
+## Run
 
 ```bash
 python gui.py
 ```
 
-or
+or:
 
 ```bash
 ./run_gui.sh
 ```
 
-### Typical workflow
+## Typical Workflow
 
-1. Select SVG.
-2. Choose mode (`Overlaid Complexity` or `Flat Complexity`).
-3. Optional: enable `Clip Shapes To Visible Boundaries`.
-4. Set mode-specific options.
-5. Click `Process`.
-6. Export:
+1. Click `Select SVG`.
+2. Choose `Quality Preset` and `Export Profile`.
+3. Click `Estimate Complexity` (recommended for heavy files).
+4. Choose mode (`Overlaid Complexity` or `Flat Complexity`).
+5. Set optional controls:
+   - `Clip Shapes To Visible Boundaries`
+   - `Performance Mode`
+6. Click `Process`.
+7. Export with:
    - `Save Layers As...`
    - `Save Clipped 1-Layer As...`
 
-## Flat Complexity Notes
+## Batch Workflow
 
-### Touch policy
+1. Configure settings as desired (mode, preset, profile, clipping, etc.).
+2. Click `Batch Process Folder`.
+3. Choose input folder (SVG files).
+4. Choose output folder.
 
-- `No edge/corner touching`: any contact is a conflict.
-- `Allow corner touching`: corner-only point contacts are allowed.
+Each file is processed with the same active settings.
 
-### Overlap priority
+## Export Profiles
 
-Controls who keeps contested area during flattening:
+- `Illustrator-safe`: balanced precision, crop marks included.
+- `Print`: higher path precision, crop marks included.
+- `Web`: lower precision, no crop marks.
 
-- `Source order`: top-most SVG paint order wins.
-- `Largest first`: larger regions are preserved first.
-- `Smallest first`: detail shapes are preserved first.
-
-### force_k behavior
-
-`force_k` in Flat mode allows conflicts when needed and minimizes them.
-Summary includes:
-
-- minimum proven required layers
-- `force_k` target
-- conflict pairs introduced
-
-## Programmatic usage
+## Programmatic Usage
 
 ```python
-from main import run_diastasis, save_layers_to_files, save_single_layer_file
+from main import run_diastasis, save_layers_to_files
 
 shapes, coloring, summary, w, h = run_diastasis(
     "input.svg",
     mode="flat",
     flat_algorithm="DSATUR",
-    flat_touch_policy="any_touch",        # or "edge_or_overlap"
-    flat_priority_order="source",         # or "largest_first", "smallest_first"
+    flat_touch_policy="any_touch",
+    flat_priority_order="source",
     clip_visible_boundaries=True,
+    performance_mode=False,
 )
 
-# Multi-layer export
 save_layers_to_files(
     shapes,
     coloring,
@@ -112,23 +97,10 @@ save_layers_to_files(
     w,
     h,
     preserve_original_colors=True,
+    export_profile="Illustrator-safe",
 )
-
-# Single-layer clipped export
-save_single_layer_file(shapes, "output/job_single.svg", w, h)
 ```
-
-## Dependencies
-
-- `svgpathtools`
-- `shapely`
-- `rtree`
-- `networkx`
-- `numpy`
-- `lxml`
-- `Pillow`
-- `cairosvg`
 
 ## License
 
-MIT (see `LICENSE` if present in repository).
+MIT

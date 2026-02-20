@@ -6,11 +6,13 @@ from main import (
     build_flat_coloring,
     build_flat_conflict_graph,
     clip_shapes_to_visible_boundaries,
+    estimate_processing_complexity,
     flat_layer_lower_bound,
     get_shape_fill,
     make_shapes_area_disjoint,
     polygon_to_svg_path_d,
     run_diastasis,
+    save_layers_to_files,
     save_single_layer_file,
 )
 from svg_parser import Shape
@@ -186,6 +188,8 @@ def test_run_diastasis_with_visible_clipping_disables_overlap(tmp_path):
     )
     assert shapes is not None
     assert "Visible boundary clipping: Enabled" in summary
+    assert "Layer area share:" in summary
+    assert "Tiny fragments" in summary
     for i in range(len(shapes)):
         for j in range(i + 1, len(shapes)):
             assert shapes[i].geometry.intersection(shapes[j].geometry).area == 0
@@ -228,3 +232,63 @@ def test_get_shape_fill_prefers_metadata_fill_then_style():
 
     shape_none = Shape(id=2, geometry=box(0, 0, 1, 1), metadata={"fill": "none", "style": "fill:none;"})
     assert get_shape_fill(shape_none, fallback_color="#000000") == "#000000"
+
+
+def test_estimate_processing_complexity_returns_metrics(tmp_path):
+    svg_content = """
+    <svg width="30" height="30" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="10" height="10" />
+      <rect x="5" y="0" width="10" height="10" />
+      <rect x="20" y="20" width="5" height="5" />
+    </svg>
+    """
+    svg_file = tmp_path / "estimate.svg"
+    svg_file.write_text(svg_content)
+
+    estimate = estimate_processing_complexity(str(svg_file))
+    assert estimate["shape_count"] == 3
+    assert estimate["candidate_pairs"] >= 1
+    assert estimate["all_pairs"] == 3
+    assert estimate["complexity_label"] in {"Low", "Medium", "High", "Very High"}
+    assert estimate["eta_seconds"] > 0
+
+
+def test_save_layers_to_files_web_profile_omits_crop_marks(tmp_path):
+    shapes = [
+        Shape(id=0, geometry=box(0, 0, 10, 10), metadata={"style": "fill:#ff0000;"}),
+        Shape(id=1, geometry=box(10, 0, 20, 10), metadata={"style": "fill:#00ff00;"}),
+    ]
+    coloring = {0: [0], 1: [1]}
+    save_layers_to_files(
+        shapes,
+        coloring,
+        str(tmp_path),
+        "web_profile_test",
+        100,
+        100,
+        preserve_original_colors=True,
+        export_profile="Web",
+    )
+    content = (tmp_path / "web_profile_test_layered.svg").read_text()
+    assert 'data-export-profile="Web"' in content
+    assert 'id="Crop_Marks"' not in content
+
+def test_run_diastasis_reports_performance_mode_in_summary(tmp_path):
+    svg_content = """
+    <svg width="40" height="40" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="20" height="20" />
+      <rect x="10" y="0" width="20" height="20" />
+    </svg>
+    """
+    svg_file = tmp_path / "perf_mode.svg"
+    svg_file.write_text(svg_content)
+
+    _, _, summary, _, _ = run_diastasis(
+        str(svg_file),
+        mode="overlaid",
+        performance_mode=True,
+        performance_shape_threshold=1,
+    )
+
+    assert "Performance mode: Enabled" in summary
+    assert "Performance simplification applied:" in summary

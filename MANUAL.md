@@ -1,165 +1,117 @@
 # Diastasis Manual
 
-## Why these functions/options exist
+## Core Concepts
 
-Diastasis has many controls because different SVG workflows need different constraints:
+Diastasis has two processing models:
 
-- Some jobs need strict separation with zero shared area between shapes/layers.
-- Some jobs must keep visual stacking and only export what is actually visible.
-- Some jobs need fewer layers even if small conflicts are allowed.
-- Some jobs prioritize preserving major blocks; others preserve detail fragments.
+- `Overlaid Complexity`
+  - Keeps overlap relationships and creates layers based on overlap conflicts.
+- `Flat Complexity`
+  - Enforces area-exclusive output (no shared area in final fragments).
 
-This manual explains when to use each option.
+Use Overlaid for classic layered decomposition.
+Use Flat when strict non-overlap output is required.
 
-## Core modes
+## New Workflow Controls
 
-## 1. Overlaid Complexity
+## Quality Preset
 
-Use when you want classic overlap-aware layer assignment from original shapes.
+- `Accurate`
+  - Higher quality defaults, slower.
+  - Enables optimizer.
+- `Balanced`
+  - Good default for most jobs.
+- `Fast`
+  - Prioritizes speed.
+  - Enables performance mode.
 
-Best for:
-- General layer separation
-- Quick processing
-- Traditional graph-coloring approach
+## Complexity Report
 
-Main controls:
-- `Algorithm`
-- `Apply post-processing optimization`
-- `force_k` + `Number of Layers`
+`Estimate Complexity` computes:
 
-## 2. Flat Complexity
+- shape count
+- candidate pair count
+- graph density
+- estimated processing time
 
-Use when you need area-exclusive results and strict geometric control.
+Use it before heavy jobs to choose preset/mode.
 
-Best for:
-- Manufacturing workflows
-- No shared area between resulting shape fragments
-- Controlling touching rules and overlap ownership
+## Performance Mode
 
-Main controls:
-- `Flat Algorithm`
-- `Touch Policy`
-- `Overlap Priority`
-- `force_k` + `Flat Number of Layers`
+For weaker systems or huge files:
 
-## Global option
+- applies safe geometry simplification when file is large
+- uses lighter overlap detection path where possible
 
-## Clip Shapes To Visible Boundaries
+Use only when speed is more important than exact geometric detail.
 
-What it does:
-- Removes hidden/occluded regions based on SVG stacking (top shapes hide lower shapes).
-- Keeps only what is actually visible in the source artwork.
+## Batch Process Folder
 
-Use when:
-- Source SVG has many stacked overlays
-- You want exported geometry to match visual result exactly
+Processes all SVG files in a selected folder with current settings.
 
-Also:
-- Clipped exports preserve original shape fill colors.
+Steps:
+1. Configure settings once.
+2. Click `Batch Process Folder`.
+3. Select input folder.
+4. Select output folder.
 
-## Flat controls in detail
+## Flat-Specific Controls
 
 ## Touch Policy
 
-### No edge/corner touching
-- Any contact is conflict.
-- Strictest separation.
-
-### Allow corner touching
-- Point-only corner contacts are allowed.
-- Useful for grid-like designs where corner touches are acceptable.
+- `No edge/corner touching`
+  - any contact is conflict
+- `Allow corner touching`
+  - point-only corner contacts may share a layer
 
 ## Overlap Priority
 
-Determines which shapes keep contested overlapping regions during flattening.
+Controls who keeps contested area in flat separation:
 
-### Source order
-- Follows SVG visual stack (top-most keeps area).
-- Best default for fidelity to the artwork.
+- `Source order`
+- `Largest first`
+- `Smallest first`
 
-### Largest first
-- Preserves large regions first.
-- Good for broad structural blocks.
-
-### Smallest first
-- Preserves detail/small regions first.
-- Good for fine-detail mosaics.
-
-## Algorithms and when to use them
-
-## DSATUR (recommended default)
-- Good quality/speed balance.
-- Usually strong first choice for both modes.
-
-## largest_first / smallest_last / independent_set
-- Alternative heuristics with different tradeoffs.
-- Useful when DSATUR result needs variation.
-
-## connected_sequential_bfs / connected_sequential_dfs
-- Traversal-based heuristics.
-- Can produce different layer structures on connected graphs.
-
-## random_sequential
-- Fast and simple baseline.
-
-## force_k
-- Forces target layer count `k`.
-- In Flat mode: soft-constrained, may introduce conflicts if `k` is too low.
-- Summary reports lower bound and conflict count.
-
-Use when:
-- You must cap layer count for production constraints.
-
-## Exports
+## Export Controls
 
 ## Save Layers As...
-- Writes multi-layer SVG.
-- Each layer corresponds to color/group assignment.
+
+Creates a multi-layer SVG from processing result.
 
 ## Save Clipped 1-Layer As...
-- Writes one single SVG layer from processed shapes.
-- Ideal when you need one flattened clipped output.
 
-## Heavy files: practical guidance
+Creates one flattened clipped SVG layer.
 
-If processing is slow:
-1. Start with `Overlaid Complexity + DSATUR`.
-2. Enable clipping only when needed.
-3. In Flat mode, prefer `DSATUR` before trying exotic algorithms.
-4. Use `force_k` only when layer count must be capped.
-5. If `force_k` causes high conflicts, increase `k` or relax touch policy.
+## Export Profile
 
-## Typical recipes
+- `Illustrator-safe`
+  - balanced path precision
+  - crop marks included
+- `Print`
+  - higher path precision
+  - crop marks included
+- `Web`
+  - smaller output (lower path precision)
+  - crop marks disabled
 
-## Recipe A: strict manufacturing separation
-- Mode: Flat
-- Clip: ON
-- Touch Policy: No edge/corner touching
-- Overlap Priority: Source order
-- Algorithm: DSATUR
+## Results Analytics
 
-## Recipe B: preserve tiny details
-- Mode: Flat
-- Clip: ON
-- Overlap Priority: Smallest first
-- Algorithm: DSATUR
+Processing summary now includes:
 
-## Recipe C: minimum layers with accepted compromises
-- Mode: Flat
-- Clip: ON or OFF (depends on source)
-- Algorithm: force_k
-- Start with `k` near summary lower bound and adjust.
+- layers used
+- overlap/conflict count
+- tiny fragment count
+- per-layer area share
 
-## Troubleshooting
+Use these metrics to compare settings and reduce noisy outputs.
 
-## "maximum recursion depth exceeded"
-- Diastasis now falls back safely to DSATUR when recursion-heavy strategies fail.
-- Retry with DSATUR directly for stability.
+## Practical Recommendations
 
-## "Processing..." seems stuck on huge files
-- Wait for completion once, then try DSATUR + Overlaid baseline.
-- Use Flat mode only when strict area logic is required.
-
-## Color mismatch after clipping
-- Ensure clipping is enabled before processing.
-- Use current build: clipped exports preserve original fills.
+1. Start with `Balanced + DSATUR`.
+2. Run `Estimate Complexity`.
+3. If complexity is high:
+   - try `Performance Mode`, or
+   - switch to `Flat Complexity` if strict non-overlap is required.
+4. For final production output:
+   - use `Accurate` preset
+   - choose `Illustrator-safe` or `Print` profile.

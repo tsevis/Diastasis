@@ -32,6 +32,12 @@ def test_detect_overlaps_spatial_index(simple_shapes):
     for _, _, area in overlaps:
         assert area > 0
 
+
+def test_detect_overlap_pairs(simple_shapes):
+    engine = GeometryEngine(use_spatial_index=True)
+    pairs = sorted(engine.detect_overlap_pairs(simple_shapes))
+    assert pairs == sorted([(0, 1), (0, 3), (1, 3)])
+
 def test_parallel_overlap_detection(simple_shapes):
     engine = GeometryEngine(max_workers=2) # Use 2 workers for testing parallel
     overlaps = engine.parallel_overlap_detection(simple_shapes)
