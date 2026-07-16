@@ -332,8 +332,9 @@ def run_diastasis(
     clip_visible_boundaries=False,
     performance_mode=False,
     performance_shape_threshold=1200,
+    include_strokes=False,
 ):
-    parser = SVGParser()
+    parser = SVGParser(include_strokes=include_strokes)
     shapes, svg_width, svg_height = parser.load_svg(svg_filepath)
 
     if not shapes:
@@ -432,6 +433,8 @@ def run_diastasis(
     summary = f"Processing complete ({mode_label}). Used {num_colors} layers.\n"
     summary += f"Visible boundary clipping: {'Enabled' if clip_visible_boundaries else 'Disabled'}\n"
     summary += f"Performance mode: {'Enabled' if performance_mode else 'Disabled'}\n"
+    if include_strokes:
+        summary += "Stroke-aware footprints: Enabled\n"
     if used_performance_mode:
         summary += (
             f"Performance simplification applied: {original_shape_count} -> {len(shapes)} shapes "

@@ -25,6 +25,11 @@ class SVGParser:
     CURVE_SAMPLES = 16
     TRANSFORM_PATTERN = re.compile(r'(matrix|translate|scale|rotate|skewX|skewY)\s*\(([^)]*)\)')
 
+    def __init__(self, include_strokes: bool = False):
+        # When set, each shape's geometry becomes its painted footprint:
+        # the fill area grown by half the (inherited) stroke width.
+        self.include_strokes = include_strokes
+
     def load_svg(self, filepath: str) -> Tuple[List[Shape], float, float]:
         """Loads an SVG file and extracts shapes and dimensions."""
         tree = etree.parse(filepath)
@@ -139,6 +144,13 @@ class SVGParser:
         polygon = self.convert_to_polygon(element)
         if polygon is None:
             return None
+
+        stroked = False
+        if self.include_strokes:
+            # SVG paints the stroke in user space before transforms apply,
+            # so the footprint must be grown before the transform.
+            polygon, stroked = self._apply_stroke_footprint(polygon, element)
+
         polygon, transformed = self.apply_transform(polygon, matrix)
         if polygon is None or polygon.is_empty:
             return None
@@ -147,9 +159,9 @@ class SVGParser:
         metadata = self.preserve_metadata(element)
         d_attr = None
         native_shape = None
-        # Original markup stays valid for export only while untransformed,
-        # so exported elements always match the analyzed geometry.
-        if not transformed:
+        # Original markup stays valid for export only while the geometry is
+        # untouched, so exported elements always match the analyzed geometry.
+        if not transformed and not stroked:
             if localname == 'path':
                 d_attr = element.get('d', '')
             else:
@@ -181,6 +193,25 @@ class SVGParser:
         )
         matrix = self.combined_transform(use) @ offset @ self.parse_transform(target.get('transform') or '')
         return self._element_to_shape(target, matrix, shape_id)
+
+    def _apply_stroke_footprint(self, geometry, element) -> Tuple[BaseGeometry, bool]:
+        """
+        Grow a geometry by half its effective stroke width so the analyzed
+        area matches the painted footprint. Returns (geometry, was_grown).
+        """
+        stroke = self._effective_paint(element, 'stroke')
+        if not stroke or stroke.strip().lower() in ('none', 'transparent'):
+            return geometry, False
+
+        width_value = self._effective_paint(element, 'stroke-width')
+        stroke_width = self.parse_dimension(width_value) if width_value is not None else 1.0
+        if stroke_width <= 0:
+            return geometry, False
+
+        try:
+            return geometry.buffer(stroke_width / 2.0), True
+        except Exception:
+            return geometry, False
 
     def _is_rendered(self, element) -> bool:
         """False for content living inside defs/symbol/clipPath/mask/pattern/marker."""
@@ -490,12 +521,40 @@ class SVGParser:
         return None
 
     def preserve_metadata(self, element) -> Dict:
-        """Preserves relevant metadata from the SVG."""
+        """Preserves relevant metadata, resolving inherited paint properties."""
         return {
             'style': element.get('style'),
             'transform': element.get('transform'),
             'id': element.get('id'),
-            'fill': element.get('fill'),
+            'fill': self._effective_paint(element, 'fill'),
             'fill-rule': element.get('fill-rule'),
-            'stroke': element.get('stroke'),
+            'stroke': self._effective_paint(element, 'stroke'),
+            'stroke-width': self._effective_paint(element, 'stroke-width'),
         }
+
+    def _style_property(self, style: Optional[str], prop: str) -> Optional[str]:
+        """Read one property value out of an inline style attribute."""
+        if not style:
+            return None
+        match = re.search(rf'(?:^|;)\s*{prop}\s*:\s*([^;]+)', style, flags=re.IGNORECASE)
+        return match.group(1).strip() if match else None
+
+    def _own_paint(self, element, prop: str) -> Optional[str]:
+        """The element's own value for a paint property (attribute or style)."""
+        value = element.get(prop) or self._style_property(element.get('style'), prop)
+        if value and value.strip().lower() == 'inherit':
+            return None
+        return value
+
+    def _effective_paint(self, element, prop: str) -> Optional[str]:
+        """
+        Resolve a paint property with SVG inheritance: the element's own
+        value wins, otherwise the nearest ancestor that sets it.
+        """
+        value = self._own_paint(element, prop)
+        node = element.getparent()
+        while value is None and node is not None:
+            if isinstance(node.tag, str):
+                value = self._own_paint(node, prop)
+            node = node.getparent()
+        return value

@@ -52,6 +52,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="flat mode: which shape keeps contested area (default: source order).",
     )
     parser.add_argument("--clip", action="store_true", help="Clip shapes to visible boundaries first.")
+    parser.add_argument(
+        "--include-strokes", action="store_true",
+        help="Treat each shape's painted footprint (fill + stroke width) as its geometry.",
+    )
     parser.add_argument("--performance", action="store_true", help="Simplify geometry on very large files.")
     parser.add_argument(
         "--profile", choices=sorted(EXPORT_PROFILES), default="Illustrator-safe",
@@ -86,6 +90,7 @@ def _process_file(svg_path: str, args: argparse.Namespace) -> bool:
             flat_priority_order=args.priority,
             clip_visible_boundaries=args.clip,
             performance_mode=args.performance,
+            include_strokes=args.include_strokes,
         )
         if result[0] is None:
             print(f"error: {svg_path}: {result[2]}", file=sys.stderr)

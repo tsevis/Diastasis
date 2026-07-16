@@ -325,3 +325,70 @@ def test_rounded_rect_radii_clamped_and_defaulted():
     polygon = parser.convert_to_polygon(element)
     assert polygon.is_valid
     assert polygon.bounds == (0, 0, 20, 40)
+
+
+def test_fill_inherited_from_ancestor_group(tmp_path):
+    svg_content = """
+    <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+      <g fill="#123456">
+        <rect x="0" y="0" width="10" height="10" />
+        <rect x="20" y="0" width="10" height="10" fill="#ff0000" />
+      </g>
+      <g style="fill: rgb(1,2,3);">
+        <rect x="40" y="0" width="10" height="10" />
+      </g>
+    </svg>
+    """
+    file_path = tmp_path / "inherit.svg"
+    file_path.write_text(svg_content)
+
+    parser = SVGParser()
+    shapes, _, _ = parser.load_svg(str(file_path))
+    assert shapes[0].metadata['fill'] == '#123456'      # inherited
+    assert shapes[1].metadata['fill'] == '#ff0000'      # own wins
+    assert shapes[2].metadata['fill'] == 'rgb(1,2,3)'   # inherited from style
+
+
+def test_stroke_footprint_grows_geometry(tmp_path):
+    svg_content = """
+    <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+      <rect x="10" y="10" width="10" height="10" stroke="#000" stroke-width="4" />
+      <rect x="40" y="10" width="10" height="10" />
+    </svg>
+    """
+    file_path = tmp_path / "stroke.svg"
+    file_path.write_text(svg_content)
+
+    plain_shapes, _, _ = SVGParser().load_svg(str(file_path))
+    stroked_shapes, _, _ = SVGParser(include_strokes=True).load_svg(str(file_path))
+
+    # Stroked rect grows by stroke-width/2 on each side; unstroked is untouched.
+    assert plain_shapes[0].geometry.bounds == (10, 10, 20, 20)
+    assert stroked_shapes[0].geometry.bounds == (8, 8, 22, 22)
+    assert stroked_shapes[1].geometry.bounds == (40, 10, 50, 20)
+    # Grown geometry no longer matches original markup.
+    assert stroked_shapes[0].native_shape is None
+    assert stroked_shapes[1].native_shape is not None
+
+
+def test_stroke_footprint_creates_conflicts_between_near_shapes(tmp_path):
+    # Two rects 2 units apart; 4-unit strokes make their footprints overlap.
+    svg_content = """
+    <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+      <g stroke="#000" stroke-width="4">
+        <rect x="0" y="0" width="10" height="10" />
+        <rect x="12" y="0" width="10" height="10" />
+      </g>
+    </svg>
+    """
+    file_path = tmp_path / "stroke_conflict.svg"
+    file_path.write_text(svg_content)
+
+    from geometry_engine import GeometryEngine
+    engine = GeometryEngine(use_spatial_index=True)
+
+    plain_shapes, _, _ = SVGParser().load_svg(str(file_path))
+    assert engine.detect_overlaps(plain_shapes) == []
+
+    stroked_shapes, _, _ = SVGParser(include_strokes=True).load_svg(str(file_path))
+    assert len(engine.detect_overlaps(stroked_shapes)) == 1
