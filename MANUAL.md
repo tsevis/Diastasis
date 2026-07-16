@@ -18,7 +18,7 @@ Use Flat when strict non-overlap output is required.
 
 - `Accurate`
   - Higher quality defaults, slower.
-  - Enables optimizer.
+  - Uses `minimum_layers` (refinement built in).
 - `Balanced`
   - Good default for most jobs.
 - `Fast`
@@ -105,9 +105,20 @@ Processing summary now includes:
 
 Use these metrics to compare settings and reduce noisy outputs.
 
+## Algorithm Notes
+
+- `minimum_layers` (default) tries several coloring strategies, refines the
+  best result, and (on small graphs) runs an exact search. The summary reports
+  the proven minimum required layers and says when the result is provably
+  optimal — that is the fewest layers possible for the artwork.
+- The classic greedy strategies (`DSATUR`, `largest_first`, ...) remain
+  available for speed comparisons and reproducing older results.
+- `force_k` targets a fixed layer count and accepts conflicts; use only when
+  the layer count is mandated by production constraints.
+
 ## Practical Recommendations
 
-1. Start with `Balanced + DSATUR`.
+1. Start with `Balanced + minimum_layers`.
 2. Run `Estimate Complexity`.
 3. If complexity is high:
    - try `Performance Mode`, or

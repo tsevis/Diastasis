@@ -8,7 +8,36 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 ## [Unreleased]
 
 ### Added
-- Placeholder for upcoming changes.
+- New default coloring algorithm `minimum_layers`: runs a portfolio of greedy
+  strategies (with Kempe-chain interchange), iterated-greedy refinement, and an
+  exact branch-and-bound pass on small graphs. Stops early when the proven
+  lower bound is reached, so results are frequently provably optimal.
+- Proven lower bound ("minimum proven required layers") now reported for both
+  modes, with a "Layer count is provably optimal" note when it is met.
+- SVG `transform` support (matrix, translate, scale, rotate, skewX, skewY),
+  including inherited group transforms.
+- Compound `<path>` support: multiple subpaths are combined according to the
+  element's `fill-rule` (winding-aware `nonzero` by default, `evenodd` when
+  specified), so holes and disjoint contours produce correct geometry.
+- Curved path segments (Bezier/arc) are now sampled instead of collapsed to
+  their endpoints, giving accurate overlap detection for curved artwork.
+
+### Changed
+- Layer lower bound now uses exact max-clique branch and bound instead of the
+  slow Ramsey approximation (about 1000x faster on typical conflict graphs,
+  and tighter).
+- Flat flattening and visibility clipping subtract only spatially local
+  geometry instead of one giant accumulated union (about 40x faster at
+  1000+ shapes, identical output).
+- Generated paths now carry `fill-rule="evenodd"` so holes render correctly.
+- Removed empty placeholder modules `utils.py` and `performance_optimizer.py`.
+
+### Fixed
+- Overlaid mode no longer wastes an extra layer when the largest (background)
+  shape already occupies a layer of its own.
+- `optimize_coloring` previously could only remove single-shape layers; it now
+  performs a real iterated-greedy reduction that never increases layer count.
+- Paths with transforms no longer export stale untransformed path data.
 
 ## [0.2.0] - 2026-02-20
 

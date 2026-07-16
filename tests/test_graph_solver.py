@@ -127,3 +127,78 @@ def test_solve_coloring_recursion_error_fallback_to_dsatur(monkeypatch):
     assert len(coloring) == 4
     for u, v in graph.edges():
         assert coloring[u] != coloring[v]
+
+
+def _assert_valid_coloring(graph, coloring):
+    assert set(coloring.keys()) == set(graph.nodes())
+    for u, v in graph.edges():
+        assert coloring[u] != coloring[v]
+
+
+@pytest.mark.parametrize(
+    "graph, chromatic_number",
+    [
+        (nx.cycle_graph(5), 3),               # odd cycle
+        (nx.petersen_graph(), 3),             # triangle-free, chi=3
+        (nx.mycielski_graph(4), 4),           # Groetzsch graph: triangle-free, chi=4
+        (nx.complete_graph(5), 5),
+        (nx.complete_bipartite_graph(4, 4), 2),
+    ],
+)
+def test_minimum_layers_matches_known_chromatic_numbers(graph, chromatic_number):
+    solver = GraphSolver()
+    coloring = solver.solve_coloring(graph, algorithm="minimum_layers")
+    _assert_valid_coloring(graph, coloring)
+    assert len(set(coloring.values())) == chromatic_number
+
+
+def test_minimum_layers_reuses_colors_across_components():
+    graph = nx.disjoint_union(nx.complete_graph(4), nx.cycle_graph(5))
+    solver = GraphSolver()
+    coloring = solver.solve_coloring(graph, algorithm="minimum_layers")
+    _assert_valid_coloring(graph, coloring)
+    # K4 needs 4 colors; the C5 component must reuse them, not add more.
+    assert len(set(coloring.values())) == 4
+
+
+def test_minimum_layers_handles_edgeless_and_empty_graphs():
+    solver = GraphSolver()
+    assert solver.solve_coloring(nx.Graph(), algorithm="minimum_layers") == {}
+
+    edgeless = nx.empty_graph(6)
+    coloring = solver.solve_coloring(edgeless, algorithm="minimum_layers")
+    assert set(coloring.values()) == {0}
+
+
+def test_minimum_layers_colors_are_contiguous_from_zero():
+    graph = nx.mycielski_graph(4)
+    solver = GraphSolver()
+    coloring = solver.solve_coloring(graph, algorithm="minimum_layers")
+    used_colors = set(coloring.values())
+    assert used_colors == set(range(len(used_colors)))
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_minimum_layers_never_worse_than_dsatur(seed):
+    graph = nx.gnp_random_graph(40, 0.3, seed=seed)
+    solver = GraphSolver()
+    minimum = solver.solve_coloring(graph, algorithm="minimum_layers")
+    dsatur = nx.greedy_color(graph, strategy="DSATUR")
+    _assert_valid_coloring(graph, minimum)
+    assert len(set(minimum.values())) <= len(set(dsatur.values()))
+
+
+def test_optimize_coloring_reduces_wasteful_coloring():
+    solver = GraphSolver()
+    graph = nx.cycle_graph(6)  # bipartite, chi=2
+    wasteful = {node: node for node in graph.nodes()}  # 6 colors
+    optimized = solver.optimize_coloring(graph, wasteful)
+    _assert_valid_coloring(graph, optimized)
+    assert len(set(optimized.values())) == 2
+
+
+def test_clique_lower_bound_finds_embedded_clique():
+    graph = nx.complete_graph(6)
+    graph.add_edges_from([(5, 10), (10, 11)])
+    solver = GraphSolver()
+    assert solver.clique_lower_bound(graph) == 6

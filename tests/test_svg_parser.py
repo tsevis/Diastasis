@@ -93,3 +93,106 @@ def test_preserve_metadata():
     assert metadata['transform'] == 'translate(10,10)'
     assert metadata['fill'] == '#123456'
     assert metadata['stroke'] == '#654321'
+
+
+def test_path_with_hole_produces_donut_geometry():
+    parser = SVGParser()
+    # Inner ring wound opposite to the outer ring: a hole under nonzero (default).
+    geometry = parser.path_to_polygon(
+        "M 0 0 L 100 0 L 100 100 L 0 100 Z M 25 25 L 25 75 L 75 75 L 75 25 Z"
+    )
+    # Outer 100x100 minus inner 50x50 hole.
+    assert abs(geometry.area - 7500) < 1
+
+
+def test_path_nonzero_same_winding_subpaths_union():
+    parser = SVGParser()
+    # Two overlapping same-winding squares: nonzero fills the union (no hole).
+    geometry = parser.path_to_polygon(
+        "M 0 0 L 10 0 L 10 10 L 0 10 Z M 5 5 L 15 5 L 15 15 L 5 15 Z"
+    )
+    assert abs(geometry.area - 175) < 1
+
+
+def test_path_evenodd_same_winding_subpaths_punch_hole():
+    parser = SVGParser()
+    geometry = parser.path_to_polygon(
+        "M 0 0 L 100 0 L 100 100 L 0 100 Z M 25 25 L 75 25 L 75 75 L 25 75 Z",
+        fill_rule="evenodd",
+    )
+    assert abs(geometry.area - 7500) < 1
+
+
+def test_fill_rule_read_from_element_attribute():
+    from lxml import etree
+    parser = SVGParser()
+    element = etree.fromstring(
+        '<path d="M 0 0 L 100 0 L 100 100 L 0 100 Z M 25 25 L 75 25 L 75 75 L 25 75 Z" '
+        'fill-rule="evenodd" />'
+    )
+    geometry = parser.convert_to_polygon(element)
+    assert abs(geometry.area - 7500) < 1
+
+
+def test_path_with_disjoint_subpaths_keeps_both_contours():
+    parser = SVGParser()
+    geometry = parser.path_to_polygon(
+        "M 0 0 L 10 0 L 10 10 L 0 10 Z M 50 50 L 60 50 L 60 60 L 50 60 Z"
+    )
+    assert abs(geometry.area - 200) < 1
+
+
+def test_curved_path_is_sampled_not_collapsed_to_endpoints():
+    parser = SVGParser()
+    geometry = parser.path_to_polygon("M 0 0 Q 50 100 100 0 Z")
+    # Area under the quadratic arc is 2/3 * 100 * 50 = ~3333.
+    assert 3000 < geometry.area < 3600
+
+
+def test_transform_translate_applied_to_geometry(tmp_path):
+    svg_content = """
+    <svg width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+      <g transform="translate(50, 0)">
+        <rect x="0" y="0" width="10" height="10" />
+      </g>
+    </svg>
+    """
+    file_path = tmp_path / "transform.svg"
+    file_path.write_text(svg_content)
+
+    parser = SVGParser()
+    shapes, _, _ = parser.load_svg(str(file_path))
+    assert len(shapes) == 1
+    assert shapes[0].geometry.bounds == (50.0, 0.0, 60.0, 10.0)
+
+
+def test_transform_on_path_drops_stale_d_attribute(tmp_path):
+    svg_content = """
+    <svg width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+      <path d="M 0 0 L 10 0 L 10 10 L 0 10 Z" transform="translate(5, 5)" />
+      <path d="M 0 0 L 10 0 L 10 10 L 0 10 Z" />
+    </svg>
+    """
+    file_path = tmp_path / "transform_path.svg"
+    file_path.write_text(svg_content)
+
+    parser = SVGParser()
+    shapes, _, _ = parser.load_svg(str(file_path))
+    assert len(shapes) == 2
+    transformed, untouched = shapes
+    assert transformed.d_attribute is None
+    assert transformed.geometry.bounds == (5.0, 5.0, 15.0, 15.0)
+    assert untouched.d_attribute
+    assert untouched.geometry.bounds == (0.0, 0.0, 10.0, 10.0)
+
+
+def test_transform_rotate_about_center():
+    parser = SVGParser()
+    matrix = parser.parse_transform("rotate(90, 10, 10)")
+    geometry, transformed = parser.apply_transform(box(10, 10, 20, 20), matrix)
+    assert transformed
+    minx, miny, maxx, maxy = geometry.bounds
+    assert abs(minx - 0) < 1e-6
+    assert abs(miny - 10) < 1e-6
+    assert abs(maxx - 10) < 1e-6
+    assert abs(maxy - 20) < 1e-6

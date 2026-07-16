@@ -32,14 +32,14 @@ class DiastasisGUI:
         self.filepath = ""
         self.preview_image = None
 
-        self.algorithm = tk.StringVar(value="DSATUR")
+        self.algorithm = tk.StringVar(value="minimum_layers")
         self.use_optimizer = tk.BooleanVar(value=False)
         self.num_layers = tk.IntVar(value=3)
         self.clip_visible_boundaries = tk.BooleanVar(value=False)
         self.performance_mode = tk.BooleanVar(value=False)
         self.quality_preset = tk.StringVar(value="Balanced")
         self.export_profile = tk.StringVar(value="Illustrator-safe")
-        self.flat_algorithm = tk.StringVar(value="DSATUR")
+        self.flat_algorithm = tk.StringVar(value="minimum_layers")
         self.flat_num_layers = tk.IntVar(value=3)
         self.flat_touch_policy = tk.StringVar(value="No edge/corner touching")
         self.flat_priority_order = tk.StringVar(value="Source order")
@@ -298,6 +298,7 @@ class DiastasisGUI:
         explanation_frame.pack(fill=tk.X, padx=4, pady=(0, 6))
 
         explanations = {
+            "minimum_layers": "Best. Tries several strategies, refines, and proves optimality when possible.",
             "largest_first": "(Welsh-Powell) Fast. Colors nodes with the most neighbors first.",
             "DSATUR": "Good balance of speed and quality. Prioritizes high saturation nodes.",
             "independent_set": "Potentially high quality. Finds non-overlapping groups first.",
@@ -409,9 +410,10 @@ class DiastasisGUI:
     def apply_quality_preset(self):
         preset = self.quality_preset.get()
         if preset == "Accurate":
-            self.algorithm.set("DSATUR")
-            self.flat_algorithm.set("DSATUR")
-            self.use_optimizer.set(True)
+            self.algorithm.set("minimum_layers")
+            self.flat_algorithm.set("minimum_layers")
+            # minimum_layers has refinement built in; the extra pass adds nothing.
+            self.use_optimizer.set(False)
             self.performance_mode.set(False)
         elif preset == "Fast":
             self.algorithm.set("largest_first")
@@ -419,8 +421,8 @@ class DiastasisGUI:
             self.use_optimizer.set(False)
             self.performance_mode.set(True)
         else:
-            self.algorithm.set("DSATUR")
-            self.flat_algorithm.set("DSATUR")
+            self.algorithm.set("minimum_layers")
+            self.flat_algorithm.set("minimum_layers")
             self.use_optimizer.set(False)
             self.performance_mode.set(False)
         self.on_algo_change()

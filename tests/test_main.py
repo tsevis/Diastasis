@@ -292,3 +292,83 @@ def test_run_diastasis_reports_performance_mode_in_summary(tmp_path):
 
     assert "Performance mode: Enabled" in summary
     assert "Performance simplification applied:" in summary
+
+
+def test_run_diastasis_background_does_not_inflate_layer_count(tmp_path):
+    # Background rect overlaps two small rects that also overlap each other:
+    # the conflict graph is a triangle, so 3 layers are required and the
+    # background already sits alone on its own layer.
+    svg_content = """
+    <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="100" height="100" />
+      <rect x="10" y="10" width="30" height="30" />
+      <rect x="25" y="10" width="30" height="30" />
+    </svg>
+    """
+    svg_file = tmp_path / "background.svg"
+    svg_file.write_text(svg_content)
+
+    shapes, grouped_coloring, summary, _, _ = run_diastasis(str(svg_file), mode="overlaid")
+
+    assert len(grouped_coloring) == 3
+    assert "Minimum proven required layers: 3" in summary
+    assert "Layer count is provably optimal." in summary
+
+
+def test_run_diastasis_flat_reports_optimal_layers(tmp_path):
+    svg_content = """
+    <svg width="40" height="40" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="10" height="10" />
+      <rect x="10" y="0" width="10" height="10" />
+      <rect x="20" y="0" width="10" height="10" />
+    </svg>
+    """
+    svg_file = tmp_path / "flat_optimal.svg"
+    svg_file.write_text(svg_content)
+
+    shapes, grouped_coloring, summary, _, _ = run_diastasis(
+        str(svg_file),
+        mode="flat",
+        flat_touch_policy="any_touch",
+    )
+
+    # A touching chain of three squares is 2-colorable.
+    assert len(grouped_coloring) == 2
+    assert "Flat minimum proven required layers: 2" in summary
+    assert "Layer count is provably optimal." in summary
+
+
+def test_save_layers_to_files_marks_generated_paths_evenodd(tmp_path):
+    donut = box(0, 0, 100, 100).difference(box(25, 25, 75, 75))
+    shapes = [Shape(id=0, geometry=donut, metadata={})]
+    save_layers_to_files(shapes, {0: [0]}, str(tmp_path), "donut", 100, 100)
+
+    content = (tmp_path / "donut_layered.svg").read_text()
+    assert 'fill-rule="evenodd"' in content
+
+
+def test_run_diastasis_recolors_rest_when_background_forced_separate(tmp_path):
+    # Background overlaps two mutually-overlapping rects (triangle, needs 3
+    # layers); a fourth isolated rect must not push the count to 4 even if the
+    # solver initially placed it on the background's layer.
+    svg_content = """
+    <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="60" height="60" />
+      <rect x="10" y="10" width="30" height="30" />
+      <rect x="25" y="10" width="30" height="30" />
+      <rect x="70" y="70" width="10" height="10" />
+    </svg>
+    """
+    svg_file = tmp_path / "background_recolor.svg"
+    svg_file.write_text(svg_content)
+
+    shapes, grouped_coloring, summary, _, _ = run_diastasis(str(svg_file), mode="overlaid")
+
+    assert len(grouped_coloring) == 3
+    assert "Layer count is provably optimal" in summary
+    # The background (largest shape) must be alone on its layer.
+    largest_id = max(range(len(shapes)), key=lambda i: shapes[i].geometry.area)
+    background_layers = [
+        color for color, ids in grouped_coloring.items() if largest_id in ids
+    ]
+    assert len(grouped_coloring[background_layers[0]]) == 1

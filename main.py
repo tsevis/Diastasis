@@ -1,8 +1,9 @@
 import os
 from collections import defaultdict
 import networkx as nx
-from networkx.algorithms.approximation import clique
+from rtree import index
 from shapely.geometry import Polygon, MultiPolygon, GeometryCollection
+from shapely.ops import unary_union
 from shapely.validation import make_valid
 from graph_solver import GraphSolver
 from svg_parser import SVGParser, Shape
@@ -100,34 +101,10 @@ def build_flat_conflict_graph(shapes, geo_engine, touch_policy="any_touch"):
 
 def flat_layer_lower_bound(graph):
     """
-    Return a proven lower bound for required layers in flat separation.
+    Return a proven lower bound for the required number of layers
+    (largest clique in the conflict graph). Works for both modes.
     """
-    node_count = graph.number_of_nodes()
-    edge_count = graph.number_of_edges()
-    if node_count == 0:
-        return 0
-    if edge_count == 0:
-        return 1
-
-    # Start with cheap proven bounds.
-    lower_bound = 2
-
-    # Triangle presence guarantees a chromatic lower bound of at least 3.
-    try:
-        tri_counts = nx.triangles(graph)
-        if any(v > 0 for v in tri_counts.values()):
-            lower_bound = 3
-    except Exception:
-        pass
-
-    # Use tighter clique approximation only on moderate-size graphs.
-    if node_count <= 500 and edge_count <= 20000:
-        try:
-            lower_bound = max(lower_bound, len(clique.max_clique(graph)))
-        except Exception:
-            pass
-
-    return lower_bound
+    return GraphSolver().clique_lower_bound(graph)
 
 
 def flat_conflict_count(graph, coloring):
@@ -181,21 +158,33 @@ def _safe_difference(geom, mask):
             return geom
 
 
-def _safe_union(geom_a, geom_b):
-    geom_a = _sanitize_geometry(geom_a)
-    geom_b = _sanitize_geometry(geom_b)
-    if geom_a is None or geom_a.is_empty:
-        return geom_b
-    if geom_b is None or geom_b.is_empty:
-        return geom_a
-
+def _subtract_covered_area(geometry, placed_geometries, placed_index):
+    """
+    Subtract only the placed geometries whose bounds intersect the target.
+    Equivalent to subtracting the union of all placed geometries, but keeps
+    each difference local instead of against one giant accumulated union.
+    """
+    candidate_ids = list(placed_index.intersection(geometry.bounds))
+    if not candidate_ids:
+        return geometry
     try:
-        return geom_a.union(geom_b)
+        mask = unary_union([placed_geometries[i] for i in candidate_ids])
     except Exception:
-        try:
-            return _sanitize_geometry(geom_a).union(_sanitize_geometry(geom_b))
-        except Exception:
-            return geom_a
+        mask = None
+        for i in candidate_ids:
+            candidate = placed_geometries[i]
+            if mask is None:
+                mask = candidate
+                continue
+            try:
+                mask = mask.union(candidate)
+            except Exception:
+                try:
+                    mask = _sanitize_geometry(mask).union(_sanitize_geometry(candidate))
+                except Exception:
+                    # Skip an un-unionable geometry rather than crash the run.
+                    continue
+    return _safe_difference(geometry, mask)
 
 
 def clip_shapes_to_visible_boundaries(shapes):
@@ -204,21 +193,25 @@ def clip_shapes_to_visible_boundaries(shapes):
     Later elements are considered on top of earlier ones.
     """
     visible_by_index = {}
-    occluders = None
+    occluder_geometries = []
+    occluder_index = index.Index()
 
     # Traverse top-to-bottom (reverse source order).
     for idx in range(len(shapes) - 1, -1, -1):
         shape = shapes[idx]
-        geometry = _sanitize_geometry(shape.geometry)
-        if occluders is not None and not occluders.is_empty:
-            geometry = _safe_difference(geometry, occluders)
+        occluder = _sanitize_geometry(shape.geometry)
+        if occluder is None or occluder.is_empty:
+            continue
+        geometry = _subtract_covered_area(occluder, occluder_geometries, occluder_index)
 
         if not geometry.is_empty:
             geometry = _sanitize_geometry(geometry)
             if not geometry.is_empty:
                 visible_by_index[idx] = geometry
 
-        occluders = _safe_union(occluders, shape.geometry)
+        if occluder is not None and not occluder.is_empty:
+            occluder_index.insert(len(occluder_geometries), occluder.bounds)
+            occluder_geometries.append(occluder)
 
     clipped_shapes = []
     for idx, shape in enumerate(shapes):
@@ -262,13 +255,15 @@ def make_shapes_area_disjoint(shapes, priority_order="source"):
         ordered_shapes = [shape for _, shape in reversed(indexed_shapes)]
 
     disjoint_shapes = []
-    occupied = None
+    placed_geometries = []
+    placed_index = index.Index()
 
     for shape in ordered_shapes:
         geometry = _sanitize_geometry(shape.geometry)
-        if occupied is not None and not occupied.is_empty:
-            geometry = _safe_difference(geometry, occupied)
+        if geometry is None or geometry.is_empty:
+            continue
 
+        geometry = _subtract_covered_area(geometry, placed_geometries, placed_index)
         if geometry.is_empty:
             continue
 
@@ -286,7 +281,8 @@ def make_shapes_area_disjoint(shapes, priority_order="source"):
             )
         )
 
-        occupied = _safe_union(occupied, geometry)
+        placed_index.insert(len(placed_geometries), geometry.bounds)
+        placed_geometries.append(geometry)
 
     return disjoint_shapes
 
@@ -377,7 +373,7 @@ def estimate_processing_complexity(svg_filepath):
     }
 
 
-def build_flat_coloring(shapes, geo_engine, algorithm="DSATUR", num_layers=None, touch_policy="any_touch"):
+def build_flat_coloring(shapes, geo_engine, algorithm="minimum_layers", num_layers=None, touch_policy="any_touch"):
     """
     Build layers by coloring the touch/intersection graph.
     Adjacent (touching/intersecting) shapes are forced into different layers.
@@ -386,18 +382,18 @@ def build_flat_coloring(shapes, geo_engine, algorithm="DSATUR", num_layers=None,
     return build_flat_coloring_from_graph(graph, algorithm=algorithm, num_layers=num_layers)
 
 
-def build_flat_coloring_from_graph(graph, algorithm="DSATUR", num_layers=None):
+def build_flat_coloring_from_graph(graph, algorithm="minimum_layers", num_layers=None):
     solver = GraphSolver()
     return solver.solve_coloring(graph, algorithm=algorithm, use_optimizer=False, num_layers=num_layers)
 
 
 def run_diastasis(
     svg_filepath,
-    algorithm="DSATUR",
+    algorithm="minimum_layers",
     use_optimizer=False,
     num_layers=None,
     mode="overlaid",
-    flat_algorithm="DSATUR",
+    flat_algorithm="minimum_layers",
     flat_num_layers=None,
     flat_touch_policy="any_touch",
     flat_priority_order="source",
@@ -468,12 +464,35 @@ def run_diastasis(
                 max_area = shape.geometry.area
                 largest_shape_id = i
 
-        if largest_shape_id != -1:
-            # Assign a new, distinct color ID to the largest shape
-            # Find the current maximum color ID used
-            max_existing_color_id = max(coloring.values()) if coloring else -1
-            new_background_color_id = max_existing_color_id + 1
-            coloring[largest_shape_id] = new_background_color_id
+        background_separated = False
+        if largest_shape_id in coloring:
+            background_color = coloring[largest_shape_id]
+            shares_layer = any(
+                shape_id != largest_shape_id and color == background_color
+                for shape_id, color in coloring.items()
+            )
+            if shares_layer:
+                # The background needs its own layer. Re-coloring the rest of
+                # the graph with the background pinned out is never worse than
+                # bumping only the background, and often saves a layer.
+                bumped = {**coloring, largest_shape_id: max(coloring.values()) + 1}
+                candidate = bumped
+                if algorithm != "force_k":
+                    rest_graph = graph.subgraph(
+                        node for node in graph.nodes() if node != largest_shape_id
+                    )
+                    rest_coloring = solver.solve_coloring(
+                        rest_graph, algorithm=algorithm, use_optimizer=use_optimizer
+                    )
+                    if rest_coloring:
+                        recolored = {
+                            **rest_coloring,
+                            largest_shape_id: max(rest_coloring.values()) + 1,
+                        }
+                        if len(set(recolored.values())) < len(set(bumped.values())):
+                            candidate = recolored
+                coloring = candidate
+                background_separated = True
         # --- End of largest shape separation ---
 
     num_colors = len(set(coloring.values()))
@@ -497,12 +516,32 @@ def run_diastasis(
         summary += f"Flat overlap priority: {priority_label}\n"
         lower_bound = flat_layer_lower_bound(graph)
         summary += f"Flat minimum proven required layers: {lower_bound}\n"
+        if num_colors == lower_bound:
+            summary += "Layer count is provably optimal.\n"
         if flat_algorithm == "force_k" and flat_num_layers is not None:
             conflicts = flat_conflict_count(graph, coloring)
             summary += (
                 f"Flat force_k target: {flat_num_layers}\n"
                 f"Flat conflict pairs introduced: {conflicts}\n"
             )
+    else:
+        lower_bound = flat_layer_lower_bound(graph)
+        if background_separated:
+            # A dedicated background layer needs chi(rest) + 1 layers, so the
+            # sound bound is max(clique(G), clique(G without background) + 1).
+            rest_graph = graph.subgraph(
+                node for node in graph.nodes() if node != largest_shape_id
+            )
+            constrained_bound = max(lower_bound, flat_layer_lower_bound(rest_graph) + 1)
+            summary += f"Minimum proven required layers (dedicated background): {constrained_bound}\n"
+            if num_colors == lower_bound:
+                summary += "Layer count is provably optimal.\n"
+            elif num_colors == constrained_bound:
+                summary += "Layer count is provably optimal given a dedicated background layer.\n"
+        else:
+            summary += f"Minimum proven required layers: {lower_bound}\n"
+            if num_colors == lower_bound:
+                summary += "Layer count is provably optimal.\n"
     summary += "\n"
     color_counts = defaultdict(int)
     for color_id in coloring.values():
@@ -602,14 +641,17 @@ def save_layers_to_files(
         for shape_id in color_shapes:
             shape = shapes[shape_id]
             path_d = ""
+            fill_rule = ""
             if shape.d_attribute: # If original d_attribute exists (for path elements)
                 path_d = shape.d_attribute
             else: # For other shapes (rect, circle, polygon) converted to Shapely Polygon
                 path_d = polygon_to_svg_path_d(shape.geometry, precision=path_precision)
-            
+                # Generated paths encode holes as extra subpaths; even-odd makes them render.
+                fill_rule = ' fill-rule="evenodd"'
+
             if path_d: # Only add if path_d is not empty
                 path_fill = get_shape_fill(shape, fallback_color=fill_color) if preserve_original_colors else fill_color
-                layered_svg_content += f'    <path d="{path_d}" fill="{path_fill}" stroke="none"/>' + '\n'
+                layered_svg_content += f'    <path d="{path_d}" fill="{path_fill}"{fill_rule} stroke="none"/>' + '\n'
         layered_svg_content += '  </g>' + '\n'
 
     if include_crop_marks:
@@ -646,8 +688,9 @@ def save_single_layer_file(shapes, output_filepath, svg_width, svg_height):
         if not path_d:
             continue
 
+        fill_rule = "" if shape.d_attribute else ' fill-rule="evenodd"'
         fill = get_shape_fill(shape, fallback_color="#000000")
-        single_layer_svg += f'    <path d="{path_d}" fill="{fill}" stroke="none"/>\n'
+        single_layer_svg += f'    <path d="{path_d}" fill="{fill}"{fill_rule} stroke="none"/>\n'
 
     single_layer_svg += "  </g>\n</svg>\n"
 

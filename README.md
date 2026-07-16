@@ -7,6 +7,9 @@ Diastasis separates complex SVG artwork into production-ready layers.
 - Two modes:
   - `Overlaid Complexity`: overlap-aware layering.
   - `Flat Complexity`: strict area-exclusive separation.
+- `minimum_layers` algorithm (default): portfolio of coloring strategies,
+  iterated refinement, and exact search on small graphs — the summary states
+  when the layer count is provably the minimum possible.
 - Quality presets:
   - `Accurate`, `Balanced`, `Fast`.
 - Complexity estimator:
@@ -82,7 +85,7 @@ from main import run_diastasis, save_layers_to_files
 shapes, coloring, summary, w, h = run_diastasis(
     "input.svg",
     mode="flat",
-    flat_algorithm="DSATUR",
+    flat_algorithm="minimum_layers",
     flat_touch_policy="any_touch",
     flat_priority_order="source",
     clip_visible_boundaries=True,
