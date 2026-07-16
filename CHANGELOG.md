@@ -21,6 +21,19 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   specified), so holes and disjoint contours produce correct geometry.
 - Curved path segments (Bezier/arc) are now sampled instead of collapsed to
   their endpoints, giving accurate overlap detection for curved artwork.
+- Headless CLI (`cli.py`): single-file and batch processing, complexity
+  estimates, and all pipeline options without the GUI.
+- Per-layer file export (`save_layers_to_separate_files`): one registered
+  SVG per layer with shared canvas and crop marks.
+- High-fidelity export module (`svg_export.py`): untransformed basic shapes
+  re-emit their original native markup instead of polygonized paths.
+- `polyline` support, `defs`/`symbol`/`clipPath`/`mask` content excluded
+  from direct rendering, and `use` references resolved with correct
+  transform composition.
+- Canvas size now follows the `viewBox` coordinate system, fixing wrong
+  output scale for files sized in physical units (e.g. mm).
+- Vectorized overlap/contact detection (shapely 2 bulk STRtree): contacts
+  about 10x faster, overlaps about 2.5x faster at 3000 shapes.
 
 ### Changed
 - Layer lower bound now uses exact max-clique branch and bound instead of the

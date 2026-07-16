@@ -72,6 +72,20 @@ Controls who keeps contested area in flat separation:
 - `Largest first`
 - `Smallest first`
 
+## Command Line Interface
+
+For automation and headless use, `cli.py` exposes the full pipeline:
+
+```bash
+python cli.py artwork.svg -o output/                 # one file
+python cli.py --batch folder/ -o output/             # whole folder
+python cli.py artwork.svg --mode flat --separate-files
+python cli.py artwork.svg --estimate                 # complexity only
+```
+
+`--separate-files` writes one SVG per layer on a shared canvas with crop
+marks, so the files stay in register when stacked in production.
+
 ## Export Controls
 
 ## Save Layers As...

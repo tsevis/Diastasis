@@ -10,6 +10,14 @@ Diastasis separates complex SVG artwork into production-ready layers.
 - `minimum_layers` algorithm (default): portfolio of coloring strategies,
   iterated refinement, and exact search on small graphs — the summary states
   when the layer count is provably the minimum possible.
+- Headless CLI (`python cli.py`) with batch folder processing.
+- Per-layer file export: one registered SVG per layer (shared canvas and
+  crop marks) for production stacking.
+- High-fidelity export: untransformed rects/circles/ellipses/polygons keep
+  their original markup; original path data preserved whenever valid.
+- Broad SVG input coverage: transforms (incl. groups), `viewBox` coordinate
+  spaces, compound paths with holes (`nonzero`/`evenodd`), `polyline`,
+  `defs`/`use` references, curved segments sampled accurately.
 - Quality presets:
   - `Accurate`, `Balanced`, `Fast`.
 - Complexity estimator:
@@ -61,6 +69,25 @@ or:
 7. Export with:
    - `Save Layers As...`
    - `Save Clipped 1-Layer As...`
+
+## Command Line
+
+```bash
+# One file -> output/artwork_layered.svg (+ summary with optimality proof)
+python cli.py artwork.svg -o output/
+
+# Strict flat separation, one registered SVG file per layer
+python cli.py artwork.svg -o output/ --mode flat --separate-files
+
+# Whole folder with print settings
+python cli.py --batch input_folder/ -o output/ --profile Print
+
+# Check how heavy a file is before processing
+python cli.py artwork.svg --estimate
+```
+
+Run `python cli.py --help` for all options (algorithm, touch policy,
+overlap priority, clipping, performance mode, recoloring).
 
 ## Batch Workflow
 
