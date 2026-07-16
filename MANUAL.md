@@ -2,15 +2,19 @@
 
 ## Core Concepts
 
-Diastasis has two processing models:
+Diastasis has three processing models:
 
 - `Overlaid Complexity`
   - Keeps overlap relationships and creates layers based on overlap conflicts.
 - `Flat Complexity`
   - Enforces area-exclusive output (no shared area in final fragments).
+- `Color Separation`
+  - One layer (plate) per ink color, for screen printing, vinyl cutting, and
+    risograph. Merge tolerance groups near-identical inks to cut plate count.
 
 Use Overlaid for classic layered decomposition.
 Use Flat when strict non-overlap output is required.
+Use Color Separation when the number of layers should equal the number of inks.
 
 ## New Workflow Controls
 
@@ -165,3 +169,19 @@ switches to `Separated` automatically and follows the active mode tab.
 Flat-mode flattening can leave sub-visible fragments where shapes almost
 coincide. `--drop-slivers 0.0001` removes fragments smaller than 0.01% of
 the canvas area before layering; the summary reports how many were removed.
+
+## Color Separation
+
+`Color Separation` mode (GUI tab, or `--mode color`) makes one plate per fill
+color — the model print production actually uses.
+
+- **Merge tolerance** (`--color-tolerance DIST`): colors within `DIST` RGB
+  distance of a plate's seed color join that plate. `0` means exact match;
+  raise it to fold near-identical inks together and reduce plate count.
+- **Unify plate colors** (`--unify-plate-colors`): repaint every shape with
+  its plate's representative (average) ink, producing true single-ink plates.
+- Shapes with no resolvable fill are collected onto one plate.
+
+The summary lists each plate's ink and shape count, so you can see the ink
+budget at a glance. Combine with `Save Layers As Separate Files...` to emit one
+registered SVG per plate.

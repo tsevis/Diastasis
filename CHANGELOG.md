@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-07-17
+
+### Added
+- Color-based separation (`--mode color`): groups shapes into one plate per
+  ink color — the screen-print / vinyl / risograph production model.
+  - `--color-tolerance DIST` merges near-identical inks onto one plate to
+    minimize plate count (RGB distance; 0 = exact).
+  - `--unify-plate-colors` repaints each shape with its plate's representative
+    ink for true single-ink plates.
+  - Shapes with no resolvable fill are collected onto one plate.
+- `diastasis/color_utils.py`: robust SVG color parsing (hex #rgb/#rrggbb,
+  rgb()/rgba(), full CSS named-color set).
+- GUI "Color Separation" tab (merge tolerance + unify controls) and a
+  flat-mode sliver-drop field.
+
+### Changed
+- GUI tab builders extracted to `gui_tabs.py`; mode<->tab mapping via lookup
+  tables.
+
 ## [0.4.0] - 2026-07-17
 
 ### Added
