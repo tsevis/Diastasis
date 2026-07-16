@@ -130,3 +130,26 @@ def test_layer_color_map_is_deterministic_beyond_base_palette():
     # All colors are well-formed hex and distinct.
     assert all(len(c) == 7 and c.startswith('#') for c in first.values())
     assert len(set(first[i] for i in ids)) == len(ids)
+
+
+def test_build_layered_svg_string_matches_saved_file(tmp_path):
+    from diastasis.svg_export import build_layered_svg_string
+    shapes = [
+        Shape(id=0, geometry=box(0, 0, 10, 10), metadata={"fill": "#112233"}),
+        Shape(id=1, geometry=box(5, 0, 15, 10), metadata={"fill": "#445566"}),
+    ]
+    coloring = {0: [0], 1: [1]}
+
+    content = build_layered_svg_string(
+        shapes, coloring, 100, 100, preserve_original_colors=True, export_profile="Print"
+    )
+    save_layers_to_files(
+        shapes, coloring, str(tmp_path), "same", 100, 100,
+        preserve_original_colors=True, export_profile="Print",
+    )
+    assert content == (tmp_path / "same_layered.svg").read_text()
+
+    # The string is a renderable, well-formed document.
+    from lxml import etree
+    root = etree.fromstring(content.encode())
+    assert root.tag.endswith("svg")

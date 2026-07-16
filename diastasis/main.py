@@ -8,6 +8,7 @@ from .svg_parser import SVGParser, Shape
 from .geometry_engine import GeometryEngine
 # Export helpers live in svg_export; re-exported here for API compatibility.
 from .svg_export import (  # noqa: F401
+    build_layered_svg_string,
     generate_crop_marks_svg,
     get_shape_fill,
     polygon_to_svg_path_d,

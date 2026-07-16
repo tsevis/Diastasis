@@ -11,6 +11,7 @@ from PIL import Image, ImageTk
 from . import gui_theme
 from .graph_solver import GraphSolver
 from .main import (
+    build_layered_svg_string,
     estimate_processing_complexity,
     run_diastasis,
     save_layers_to_files,
@@ -40,6 +41,7 @@ class DiastasisGUI:
         self.performance_mode = tk.BooleanVar(value=False)
         self.preserve_colors = tk.BooleanVar(value=True)
         self.include_strokes = tk.BooleanVar(value=False)
+        self.preview_mode = tk.StringVar(value="Original")
         self.quality_preset = tk.StringVar(value="Balanced")
         self.export_profile = tk.StringVar(value="Illustrator-safe")
         self.flat_algorithm = tk.StringVar(value="minimum_layers")
@@ -214,6 +216,19 @@ class DiastasisGUI:
         )
         self.save_separate_button.pack(anchor=tk.CENTER, pady=(6, 0))
 
+        preview_bar = ttk.Frame(right_frame)
+        preview_bar.pack(fill=tk.X, pady=(0, 6))
+        ttk.Label(preview_bar, text="Preview:").pack(side=tk.LEFT, padx=(0, 6))
+        self.preview_mode_combo = ttk.Combobox(
+            preview_bar,
+            textvariable=self.preview_mode,
+            values=["Original", "Separated"],
+            state="readonly",
+            width=12,
+        )
+        self.preview_mode_combo.pack(side=tk.LEFT)
+        self.preview_mode_combo.bind("<<ComboboxSelected>>", lambda _evt: self.display_preview())
+
         self.preview_canvas = tk.Canvas(right_frame, bg="white")
         self.preview_canvas.pack(fill=tk.BOTH, expand=True)
         self.preview_canvas.bind("<Configure>", self.on_preview_resize)
@@ -362,6 +377,8 @@ class DiastasisGUI:
         else:
             self.results_text.insert(tk.END, mode_result["summary"])
             self._set_save_buttons_state("normal")
+        if self.filepath and self.preview_mode.get() == "Separated":
+            self.display_preview()
 
     def apply_quality_preset(self):
         preset = self.quality_preset.get()
@@ -392,6 +409,7 @@ class DiastasisGUI:
         if filepath:
             self.filepath = filepath
             self.filepath_label.config(text=os.path.basename(filepath))
+            self.preview_mode.set("Original")
             self.display_preview()
             self.results_by_mode["overlaid"] = None
             self.results_by_mode["flat"] = None
@@ -442,7 +460,7 @@ class DiastasisGUI:
                 self.root.after(100, self.display_preview)
                 return
 
-            png_data = svg2png(url=self.filepath, output_width=1200, output_height=1200)
+            png_data = svg2png(output_width=1200, output_height=1200, **self._preview_svg_source())
             image = Image.open(io.BytesIO(png_data))
 
             img_width, img_height = image.size
@@ -466,6 +484,22 @@ class DiastasisGUI:
                 text="Preview not available",
                 anchor=tk.CENTER,
             )
+
+    def _preview_svg_source(self):
+        """svg2png source kwargs: the separated result if requested and available."""
+        if self.preview_mode.get() == "Separated":
+            data = self.results_by_mode.get(self.get_active_mode())
+            if data:
+                layered = build_layered_svg_string(
+                    data["shapes"],
+                    data["coloring"],
+                    data["svg_width"],
+                    data["svg_height"],
+                    preserve_original_colors=self.preserve_colors.get(),
+                    export_profile=self.export_profile.get(),
+                )
+                return {"bytestring": layered.encode("utf-8")}
+        return {"url": self.filepath}
 
     def on_preview_resize(self, _event):
         if self.preview_image is not None:
@@ -492,37 +526,7 @@ class DiastasisGUI:
 
     def run_process_thread(self, mode):
         try:
-            algorithm = self.algorithm.get()
-            use_optimizer = self.use_optimizer.get()
-            num_layers = self.num_layers.get() if algorithm == "force_k" else None
-
-            flat_algorithm = self.flat_algorithm.get()
-            flat_num_layers = self.flat_num_layers.get() if flat_algorithm == "force_k" else None
-            flat_touch_policy = (
-                "edge_or_overlap"
-                if self.flat_touch_policy.get() == "Allow corner touching"
-                else "any_touch"
-            )
-            flat_priority_order = {
-                "Source order": "source",
-                "Largest first": "largest_first",
-                "Smallest first": "smallest_first",
-            }.get(self.flat_priority_order.get(), "source")
-
-            result = run_diastasis(
-                self.filepath,
-                algorithm=algorithm,
-                use_optimizer=use_optimizer,
-                num_layers=num_layers,
-                mode=mode,
-                flat_algorithm=flat_algorithm,
-                flat_num_layers=flat_num_layers,
-                flat_touch_policy=flat_touch_policy,
-                flat_priority_order=flat_priority_order,
-                clip_visible_boundaries=self.clip_visible_boundaries.get(),
-                performance_mode=self.performance_mode.get(),
-                include_strokes=self.include_strokes.get(),
-            )
+            result = self._run_with_current_options(self.filepath, mode)
 
             if result and len(result) >= 5:
                 shapes, coloring, summary, svg_width, svg_height = result
@@ -560,6 +564,9 @@ class DiastasisGUI:
             self.results_text.delete(1.0, tk.END)
             self.results_text.insert(tk.END, summary)
             self._set_save_buttons_state("normal")
+            # Show the artist what the separation looks like right away.
+            self.preview_mode.set("Separated")
+            self.display_preview()
         else:
             self._set_save_buttons_state("disabled")
 
@@ -645,12 +652,12 @@ class DiastasisGUI:
         self.root.after(0, finish_batch)
 
     def _process_single_file(self, filepath, mode):
-        algorithm = self.algorithm.get()
-        use_optimizer = self.use_optimizer.get()
-        num_layers = self.num_layers.get() if algorithm == "force_k" else None
+        return self._run_with_current_options(filepath, mode)
 
+    def _run_with_current_options(self, filepath, mode):
+        """Run the pipeline with the options currently set in the UI."""
+        algorithm = self.algorithm.get()
         flat_algorithm = self.flat_algorithm.get()
-        flat_num_layers = self.flat_num_layers.get() if flat_algorithm == "force_k" else None
         flat_touch_policy = (
             "edge_or_overlap"
             if self.flat_touch_policy.get() == "Allow corner touching"
@@ -665,11 +672,11 @@ class DiastasisGUI:
         return run_diastasis(
             filepath,
             algorithm=algorithm,
-            use_optimizer=use_optimizer,
-            num_layers=num_layers,
+            use_optimizer=self.use_optimizer.get(),
+            num_layers=self.num_layers.get() if algorithm == "force_k" else None,
             mode=mode,
             flat_algorithm=flat_algorithm,
-            flat_num_layers=flat_num_layers,
+            flat_num_layers=self.flat_num_layers.get() if flat_algorithm == "force_k" else None,
             flat_touch_policy=flat_touch_policy,
             flat_priority_order=flat_priority_order,
             clip_visible_boundaries=self.clip_visible_boundaries.get(),

@@ -183,20 +183,15 @@ def _layer_group_markup(
     return "\n".join(lines) + "\n"
 
 
-def save_layers_to_files(
+def build_layered_svg_string(
     shapes: List[Shape],
     coloring: Dict[int, List[int]],
-    output_dir: str,
-    original_filename: str,
     svg_width: float,
     svg_height: float,
     preserve_original_colors: bool = False,
     export_profile: str = "Illustrator-safe",
 ) -> str:
-    """Write all layers into one SVG, one <g> group per layer."""
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-
+    """Build the full layered SVG document, one <g> group per layer."""
     profile, path_precision, include_crop_marks = resolve_export_profile(export_profile)
     color_map = build_layer_color_map(coloring.keys())
 
@@ -214,9 +209,32 @@ def save_layers_to_files(
     if include_crop_marks:
         body += f'  <g id="Crop_Marks">\n{generate_crop_marks_svg(svg_width, svg_height)}\n  </g>\n'
 
+    return _svg_document(svg_width, svg_height, body, profile)
+
+
+def save_layers_to_files(
+    shapes: List[Shape],
+    coloring: Dict[int, List[int]],
+    output_dir: str,
+    original_filename: str,
+    svg_width: float,
+    svg_height: float,
+    preserve_original_colors: bool = False,
+    export_profile: str = "Illustrator-safe",
+) -> str:
+    """Write all layers into one SVG, one <g> group per layer."""
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    content = build_layered_svg_string(
+        shapes, coloring, svg_width, svg_height,
+        preserve_original_colors=preserve_original_colors,
+        export_profile=export_profile,
+    )
+
     output_filepath = os.path.join(output_dir, f"{original_filename}_layered.svg")
     with open(output_filepath, "w", encoding="utf-8") as f:
-        f.write(_svg_document(svg_width, svg_height, body, profile))
+        f.write(content)
 
     print(f"Layered SVG saved to: {output_filepath}")
     return output_filepath
