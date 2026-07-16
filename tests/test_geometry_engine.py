@@ -1,6 +1,6 @@
 import pytest
-from geometry_engine import GeometryEngine
-from svg_parser import Shape
+from diastasis.geometry_engine import GeometryEngine
+from diastasis.svg_parser import Shape
 from shapely.geometry import Polygon, Point, box
 
 # Fixture for creating simple shapes

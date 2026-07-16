@@ -1,7 +1,7 @@
 import pytest
 import os
-from output_generator import OutputGenerator
-from svg_parser import Shape
+from diastasis.output_generator import OutputGenerator
+from diastasis.svg_parser import Shape
 from shapely.geometry import Polygon, box
 import networkx as nx # For coloring dictionary
 

@@ -1,7 +1,7 @@
 import pytest
 import networkx as nx
-from graph_solver import GraphSolver
-from svg_parser import Shape
+from diastasis.graph_solver import GraphSolver
+from diastasis.svg_parser import Shape
 from shapely.geometry import box
  # Assuming Shape class is available
 

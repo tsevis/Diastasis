@@ -11,7 +11,7 @@ from xml.sax.saxutils import quoteattr
 
 from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
 
-from svg_parser import Shape
+from .svg_parser import Shape
 
 
 def _attr(value) -> str:

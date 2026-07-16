@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Set, Tuple
 import networkx as nx
 import numpy as np
 
-from svg_parser import Shape
+from .svg_parser import Shape
 
 
 class _ExactSearchBudgetExhausted(Exception):

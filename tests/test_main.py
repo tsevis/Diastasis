@@ -1,8 +1,8 @@
 import pytest
 from shapely.geometry import Polygon, box
 
-from geometry_engine import GeometryEngine
-from main import (
+from diastasis.geometry_engine import GeometryEngine
+from diastasis.main import (
     build_flat_coloring,
     build_flat_conflict_graph,
     clip_shapes_to_visible_boundaries,
@@ -15,7 +15,7 @@ from main import (
     save_layers_to_files,
     save_single_layer_file,
 )
-from svg_parser import Shape
+from diastasis.svg_parser import Shape
 
 
 def test_build_flat_coloring_separates_disjoint_components():

@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - 2026-07-17
 
 ### Added
 - New default coloring algorithm `minimum_layers`: runs a portfolio of greedy
@@ -34,6 +34,19 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   output scale for files sized in physical units (e.g. mm).
 - Vectorized overlap/contact detection (shapely 2 bulk STRtree): contacts
   about 10x faster, overlaps about 2.5x faster at 3000 shapes.
+- Rounded rectangles (`rx`/`ry`) analyzed as true rounded geometry with
+  SVG defaulting/clamping rules, and re-emitted natively on export.
+- SVG paint inheritance: `fill`/`stroke`/`stroke-width` resolve from
+  ancestor groups, so preserved-color exports match the rendered artwork.
+- Stroke-aware footprints (`--include-strokes` / `include_strokes=True`):
+  each shape's geometry grows by half its effective stroke width so
+  near-touching stroked shapes conflict correctly.
+- GUI: "Save Layers As Separate Files..." button and a dedicated
+  "Preserve Original Colors On Export" checkbox.
+- Python packaging (`pyproject.toml`): `pip install -e .` provides the
+  `diastasis` console command; code now lives in the `diastasis` package
+  (with `gui.py`/`cli.py` launchers kept at the repo root).
+- GitHub Actions workflow running lint and the test suite.
 
 ### Changed
 - Layer lower bound now uses exact max-clique branch and bound instead of the
@@ -46,6 +59,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Removed empty placeholder modules `utils.py` and `performance_optimizer.py`.
 
 ### Fixed
+- GUI exports no longer tie "preserve original colors" to the visibility
+  clipping checkbox (long-standing wiring bug).
+- GUI complexity-estimate errors no longer raise NameError in the
+  deferred UI callback.
+- Recalibrated complexity estimator (vectorized candidate counting, ETA
+  model retuned to the optimized engine).
 - Overlaid mode no longer wastes an extra layer when the largest (background)
   shape already occupies a layer of its own.
 - `optimize_coloring` previously could only remove single-shape layers; it now

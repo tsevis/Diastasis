@@ -1,0 +1,14 @@
+svgpathtools>=1.7.2
+shapely>=2.0
+rtree>=1.0
+networkx>=3.0
+numpy>=1.24
+lxml>=4.9
+
+[dev]
+pytest>=8.0
+ruff>=0.4
+
+[gui]
+Pillow>=10.0
+cairosvg>=2.5.2

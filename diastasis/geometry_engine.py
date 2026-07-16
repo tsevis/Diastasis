@@ -10,7 +10,7 @@ from shapely.geometry import Polygon
 from shapely.strtree import STRtree
 from shapely.validation import make_valid
 
-from svg_parser import Shape
+from .svg_parser import Shape
 
 logger = logging.getLogger(__name__)
 

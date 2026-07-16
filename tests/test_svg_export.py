@@ -1,12 +1,12 @@
 from shapely.geometry import box
 
-from main import run_diastasis
-from svg_export import (
+from diastasis.main import run_diastasis
+from diastasis.svg_export import (
     save_layers_to_files,
     save_layers_to_separate_files,
     shape_element_markup,
 )
-from svg_parser import Shape
+from diastasis.svg_parser import Shape
 
 
 def test_shape_element_markup_prefers_original_path_data():

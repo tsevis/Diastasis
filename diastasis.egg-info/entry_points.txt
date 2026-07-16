@@ -1,0 +1,2 @@
+[console_scripts]
+diastasis = diastasis.cli:main

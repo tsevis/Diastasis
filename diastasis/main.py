@@ -3,11 +3,11 @@ import networkx as nx
 from rtree import index
 from shapely.ops import unary_union
 from shapely.validation import make_valid
-from graph_solver import GraphSolver
-from svg_parser import SVGParser, Shape
-from geometry_engine import GeometryEngine
+from .graph_solver import GraphSolver
+from .svg_parser import SVGParser, Shape
+from .geometry_engine import GeometryEngine
 # Export helpers live in svg_export; re-exported here for API compatibility.
-from svg_export import (  # noqa: F401
+from .svg_export import (  # noqa: F401
     generate_crop_marks_svg,
     get_shape_fill,
     polygon_to_svg_path_d,

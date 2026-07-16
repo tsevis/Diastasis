@@ -1,3 +1,54 @@
+Metadata-Version: 2.4
+Name: diastasis
+Version: 0.3.0
+Summary: Separate complex SVG artwork into production-ready layers via graph coloring
+Author: Charis Tsevis
+License: MIT License
+        
+        Copyright (c) 2026 Charis Tsevis
+        
+        Permission is hereby granted, free of charge, to any person obtaining a copy
+        of this software and associated documentation files (the "Software"), to deal
+        in the Software without restriction, including without limitation the rights
+        to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+        copies of the Software, and to permit persons to whom the Software is
+        furnished to do so, subject to the following conditions:
+        
+        The above copyright notice and this permission notice shall be included in all
+        copies or substantial portions of the Software.
+        
+        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+        IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+        FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+        LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+        OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+        SOFTWARE.
+        
+Project-URL: Homepage, https://github.com/tsevis/Diastasis
+Project-URL: Changelog, https://github.com/tsevis/Diastasis/blob/main/CHANGELOG.md
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Other Audience
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Topic :: Multimedia :: Graphics :: Graphics Conversion
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: svgpathtools>=1.7.2
+Requires-Dist: shapely>=2.0
+Requires-Dist: rtree>=1.0
+Requires-Dist: networkx>=3.0
+Requires-Dist: numpy>=1.24
+Requires-Dist: lxml>=4.9
+Provides-Extra: gui
+Requires-Dist: Pillow>=10.0; extra == "gui"
+Requires-Dist: cairosvg>=2.5.2; extra == "gui"
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Requires-Dist: ruff>=0.4; extra == "dev"
+Dynamic: license-file
+
 # Diastasis - SVG Layer Separation Tool
 
 Diastasis separates complex SVG artwork into production-ready layers.
@@ -41,11 +92,8 @@ Diastasis separates complex SVG artwork into production-ready layers.
 ```bash
 git clone https://github.com/tsevis/Diastasis.git
 cd Diastasis
-pip install -e ".[gui]"     # library + CLI + GUI dependencies
+pip install -r requirements.txt
 ```
-
-This installs the `diastasis` command. For headless use (servers, CI),
-`pip install -e .` is enough — the GUI extras are only needed for `gui.py`.
 
 ## Run
 
@@ -77,21 +125,20 @@ or:
 
 ```bash
 # One file -> output/artwork_layered.svg (+ summary with optimality proof)
-diastasis artwork.svg -o output/
+python cli.py artwork.svg -o output/
 
 # Strict flat separation, one registered SVG file per layer
-diastasis artwork.svg -o output/ --mode flat --separate-files
+python cli.py artwork.svg -o output/ --mode flat --separate-files
 
 # Whole folder with print settings
-diastasis --batch input_folder/ -o output/ --profile Print
+python cli.py --batch input_folder/ -o output/ --profile Print
 
 # Check how heavy a file is before processing
-diastasis artwork.svg --estimate
+python cli.py artwork.svg --estimate
 ```
 
-`python cli.py ...` works too when running from a source checkout. Run
-`diastasis --help` for all options (algorithm, touch policy, overlap
-priority, clipping, stroke-aware footprints, performance mode, recoloring).
+Run `python cli.py --help` for all options (algorithm, touch policy,
+overlap priority, clipping, performance mode, recoloring).
 
 ## Batch Workflow
 
@@ -111,7 +158,7 @@ Each file is processed with the same active settings.
 ## Programmatic Usage
 
 ```python
-from diastasis import run_diastasis, save_layers_to_files
+from main import run_diastasis, save_layers_to_files
 
 shapes, coloring, summary, w, h = run_diastasis(
     "input.svg",

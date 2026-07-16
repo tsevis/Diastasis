@@ -1,5 +1,5 @@
 from typing import List, Dict
-from svg_parser import Shape
+from .svg_parser import Shape
 import os
 import random
 from shapely.geometry import MultiPolygon
@@ -114,7 +114,7 @@ class OutputGenerator:
             return ""
             
         num_layers = max(coloring.values()) + 1
-        report = f"Mozaix Diastasis - Shape Separation Report\n"
+        report = "Mozaix Diastasis - Shape Separation Report\n"
         report += "==========================================\n"
         report += f"Input file: {original_filename}.svg\n"
         report += f"Total shapes: {len(shapes)}\n"

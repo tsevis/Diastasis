@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from cli import main
+from diastasis.cli import main
 
 
 SIMPLE_SVG = """

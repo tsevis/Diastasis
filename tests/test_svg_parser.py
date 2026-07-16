@@ -1,6 +1,6 @@
 import pytest
 import os
-from svg_parser import SVGParser, Shape
+from diastasis.svg_parser import SVGParser, Shape
 from shapely.geometry import Polygon, Point, box
 
 # Create a dummy SVG file for testing
@@ -384,7 +384,7 @@ def test_stroke_footprint_creates_conflicts_between_near_shapes(tmp_path):
     file_path = tmp_path / "stroke_conflict.svg"
     file_path.write_text(svg_content)
 
-    from geometry_engine import GeometryEngine
+    from diastasis.geometry_engine import GeometryEngine
     engine = GeometryEngine(use_spatial_index=True)
 
     plain_shapes, _, _ = SVGParser().load_svg(str(file_path))

@@ -74,13 +74,15 @@ Controls who keeps contested area in flat separation:
 
 ## Command Line Interface
 
-For automation and headless use, `cli.py` exposes the full pipeline:
+For automation and headless use, the `diastasis` command (installed via
+`pip install -e .`) exposes the full pipeline:
 
 ```bash
-python cli.py artwork.svg -o output/                 # one file
-python cli.py --batch folder/ -o output/             # whole folder
-python cli.py artwork.svg --mode flat --separate-files
-python cli.py artwork.svg --estimate                 # complexity only
+diastasis artwork.svg -o output/                 # one file
+diastasis --batch folder/ -o output/             # whole folder
+diastasis artwork.svg --mode flat --separate-files
+diastasis artwork.svg --estimate                 # complexity only
+diastasis artwork.svg --include-strokes          # stroke-aware footprints
 ```
 
 `--separate-files` writes one SVG per layer on a shared canvas with crop
@@ -92,9 +94,20 @@ marks, so the files stay in register when stacked in production.
 
 Creates a multi-layer SVG from processing result.
 
+## Save Layers As Separate Files...
+
+Writes one SVG file per layer, all on the same canvas with shared crop
+marks, so the files stay in register when stacked in production.
+
 ## Save Clipped 1-Layer As...
 
 Creates one flattened clipped SVG layer.
+
+## Preserve Original Colors On Export
+
+When enabled (default), exported shapes keep the artwork's own fills,
+including fills inherited from groups. Disable to recolor each layer with
+a distinct flat color for checking the separation.
 
 ## Export Profile
 
