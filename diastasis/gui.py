@@ -9,7 +9,7 @@ from cairosvg import svg2png
 from PIL import Image, ImageTk
 
 from . import gui_theme
-from .graph_solver import GraphSolver
+from . import gui_tabs
 from .main import (
     build_layered_svg_string,
     estimate_processing_complexity,
@@ -41,6 +41,9 @@ class DiastasisGUI:
         self.performance_mode = tk.BooleanVar(value=False)
         self.preserve_colors = tk.BooleanVar(value=True)
         self.include_strokes = tk.BooleanVar(value=False)
+        self.flat_min_fragment = tk.StringVar(value="0")
+        self.color_tolerance = tk.StringVar(value="0")
+        self.unify_plate_colors = tk.BooleanVar(value=False)
         self.preview_mode = tk.StringVar(value="Original")
         self.quality_preset = tk.StringVar(value="Balanced")
         self.export_profile = tk.StringVar(value="Illustrator-safe")
@@ -53,6 +56,7 @@ class DiastasisGUI:
         self.results_by_mode = {
             "overlaid": None,
             "flat": None,
+            "color": None,
         }
 
         self._setup_theme()
@@ -174,12 +178,15 @@ class DiastasisGUI:
 
         self.overlaid_tab = ttk.Frame(self.mode_notebook)
         self.flat_tab = ttk.Frame(self.mode_notebook)
+        self.color_tab = ttk.Frame(self.mode_notebook)
         self.mode_notebook.add(self.overlaid_tab, text="Overlaid Complexity")
         self.mode_notebook.add(self.flat_tab, text="Flat Complexity")
+        self.mode_notebook.add(self.color_tab, text="Color Separation")
         self.mode_notebook.bind("<<NotebookTabChanged>>", self.on_mode_change)
 
-        self._build_overlaid_tab()
-        self._build_flat_tab()
+        gui_tabs.build_overlaid_tab(self)
+        gui_tabs.build_flat_tab(self)
+        gui_tabs.build_color_tab(self)
 
         process_frame = ttk.Frame(left_frame)
         process_frame.pack(fill=tk.X, pady=(10, 0))
@@ -237,118 +244,6 @@ class DiastasisGUI:
         self.apply_quality_preset()
         self._apply_non_macos_theme()
 
-    def _build_overlaid_tab(self):
-        algo_frame = ttk.Frame(self.overlaid_tab)
-        algo_frame.pack(fill=tk.X, pady=8, padx=4)
-
-        ttk.Label(algo_frame, text="Algorithm:").pack(side=tk.LEFT, padx=(0, 8))
-
-        self.algo_combobox = ttk.Combobox(
-            algo_frame,
-            textvariable=self.algorithm,
-            values=GraphSolver.AVAILABLE_ALGORITHMS,
-            state="readonly",
-            width=28,
-        )
-        self.algo_combobox.pack(side=tk.LEFT)
-        self.algo_combobox.bind("<<ComboboxSelected>>", lambda _evt: self.on_algo_change())
-
-        self.num_layers_frame = ttk.Frame(self.overlaid_tab)
-        ttk.Label(self.num_layers_frame, text="Number of Layers:").pack(side=tk.LEFT, padx=(0, 8))
-        self.num_layers_entry = ttk.Entry(self.num_layers_frame, textvariable=self.num_layers, width=6)
-        self.num_layers_entry.pack(side=tk.LEFT)
-
-        optimizer_frame = ttk.Frame(self.overlaid_tab)
-        optimizer_frame.pack(fill=tk.X, padx=4, pady=(0, 8))
-        self.optimizer_check = ttk.Checkbutton(
-            optimizer_frame,
-            text="Apply post-processing optimization (slower)",
-            variable=self.use_optimizer,
-        )
-        self.optimizer_check.pack(anchor=tk.W)
-
-        explanation_frame = ttk.LabelFrame(self.overlaid_tab, text="Algorithm Guide")
-        explanation_frame.pack(fill=tk.X, padx=4, pady=(0, 6))
-
-        explanations = {
-            "minimum_layers": "Best. Tries several strategies, refines, and proves optimality when possible.",
-            "largest_first": "(Welsh-Powell) Fast. Colors nodes with the most neighbors first.",
-            "DSATUR": "Good balance of speed and quality. Prioritizes high saturation nodes.",
-            "independent_set": "Potentially high quality. Finds non-overlapping groups first.",
-            "smallest_last": "Good quality. Colors in reverse simplification order.",
-            "random_sequential": "Fastest, but least optimal.",
-            "connected_sequential_bfs": "Breadth-first traversal coloring.",
-            "connected_sequential_dfs": "Depth-first traversal coloring.",
-            "force_k": "Forces a specific number of layers minimizing overlap.",
-        }
-
-        for algo, explanation in explanations.items():
-            ttk.Label(explanation_frame, text=f"- {algo}: {explanation}", wraplength=410, justify=tk.LEFT).pack(
-                anchor=tk.W, padx=6, pady=1
-            )
-
-    def _build_flat_tab(self):
-        algo_frame = ttk.Frame(self.flat_tab)
-        algo_frame.pack(fill=tk.X, pady=8, padx=4)
-
-        ttk.Label(algo_frame, text="Flat Algorithm:").pack(side=tk.LEFT, padx=(0, 8))
-        self.flat_algo_combobox = ttk.Combobox(
-            algo_frame,
-            textvariable=self.flat_algorithm,
-            values=GraphSolver.AVAILABLE_ALGORITHMS,
-            state="readonly",
-            width=24,
-        )
-        self.flat_algo_combobox.pack(side=tk.LEFT)
-        self.flat_algo_combobox.bind("<<ComboboxSelected>>", lambda _evt: self.on_flat_algo_change())
-
-        self.flat_num_layers_frame = ttk.Frame(self.flat_tab)
-        ttk.Label(self.flat_num_layers_frame, text="Flat Number of Layers:").pack(side=tk.LEFT, padx=(0, 8))
-        self.flat_num_layers_entry = ttk.Entry(self.flat_num_layers_frame, textvariable=self.flat_num_layers, width=6)
-        self.flat_num_layers_entry.pack(side=tk.LEFT)
-
-        policy_frame = ttk.Frame(self.flat_tab)
-        policy_frame.pack(fill=tk.X, pady=(0, 8), padx=4)
-
-        ttk.Label(policy_frame, text="Touch Policy:").pack(side=tk.LEFT, padx=(0, 8))
-        self.flat_policy_combobox = ttk.Combobox(
-            policy_frame,
-            textvariable=self.flat_touch_policy,
-            values=["No edge/corner touching", "Allow corner touching"],
-            state="readonly",
-            width=24,
-        )
-        self.flat_policy_combobox.pack(side=tk.LEFT)
-
-        priority_frame = ttk.Frame(self.flat_tab)
-        priority_frame.pack(fill=tk.X, pady=(0, 8), padx=4)
-        ttk.Label(priority_frame, text="Overlap Priority:").pack(side=tk.LEFT, padx=(0, 8))
-        self.flat_priority_combobox = ttk.Combobox(
-            priority_frame,
-            textvariable=self.flat_priority_order,
-            values=["Source order", "Largest first", "Smallest first"],
-            state="readonly",
-            width=24,
-        )
-        self.flat_priority_combobox.pack(side=tk.LEFT)
-
-        info_frame = ttk.LabelFrame(self.flat_tab, text="Flat Complexity Behavior")
-        info_frame.pack(fill=tk.X, padx=4, pady=(0, 6))
-
-        ttk.Label(
-            info_frame,
-            text=(
-                "No edge/corner touching: any contact forces different layers.\n"
-                "Allow corner touching: point-only corner contacts may share layers.\n"
-                "Overlap priority controls which shapes keep contested areas.\n"
-                "Use force_k only when you intentionally accept less strict separation."
-            ),
-            wraplength=410,
-            justify=tk.LEFT,
-        ).pack(anchor=tk.W, padx=6, pady=6)
-
-        self.on_flat_algo_change()
-
     def on_algo_change(self):
         if self.algorithm.get() == "force_k":
             self.num_layers_frame.pack(fill=tk.X, padx=4, pady=(0, 8))
@@ -361,10 +256,21 @@ class DiastasisGUI:
         else:
             self.flat_num_layers_frame.pack_forget()
 
+    MODE_BY_TAB = {
+        "Flat Complexity": "flat",
+        "Color Separation": "color",
+        "Overlaid Complexity": "overlaid",
+    }
+    MODE_LABELS = {
+        "overlaid": "Overlaid Complexity",
+        "flat": "Flat Complexity",
+        "color": "Color Separation",
+    }
+
     def get_active_mode(self):
         tab_id = self.mode_notebook.select()
         tab_text = self.mode_notebook.tab(tab_id, "text")
-        return "flat" if tab_text == "Flat Complexity" else "overlaid"
+        return self.MODE_BY_TAB.get(tab_text, "overlaid")
 
     def on_mode_change(self, _event=None):
         mode = self.get_active_mode()
@@ -372,7 +278,7 @@ class DiastasisGUI:
 
         self.results_text.delete(1.0, tk.END)
         if mode_result is None:
-            self.results_text.insert(tk.END, f"Mode: {'Flat Complexity' if mode == 'flat' else 'Overlaid Complexity'}\n")
+            self.results_text.insert(tk.END, f"Mode: {self.MODE_LABELS[mode]}\n")
             self._set_save_buttons_state("disabled")
         else:
             self.results_text.insert(tk.END, mode_result["summary"])
@@ -411,8 +317,8 @@ class DiastasisGUI:
             self.filepath_label.config(text=os.path.basename(filepath))
             self.preview_mode.set("Original")
             self.display_preview()
-            self.results_by_mode["overlaid"] = None
-            self.results_by_mode["flat"] = None
+            for mode_key in self.results_by_mode:
+                self.results_by_mode[mode_key] = None
             self.on_mode_change()
             self.estimate_complexity()
 
@@ -661,6 +567,14 @@ class DiastasisGUI:
     def _process_single_file(self, filepath, mode):
         return self._run_with_current_options(filepath, mode)
 
+    @staticmethod
+    def _safe_float(text_var, default=0.0):
+        """Parse a UI string field to float, falling back on blank/invalid input."""
+        try:
+            return float(text_var.get())
+        except (ValueError, TypeError):
+            return default
+
     def _run_with_current_options(self, filepath, mode):
         """Run the pipeline with the options currently set in the UI."""
         algorithm = self.algorithm.get()
@@ -689,6 +603,9 @@ class DiastasisGUI:
             clip_visible_boundaries=self.clip_visible_boundaries.get(),
             performance_mode=self.performance_mode.get(),
             include_strokes=self.include_strokes.get(),
+            min_fragment_ratio=self._safe_float(self.flat_min_fragment),
+            color_tolerance=self._safe_float(self.color_tolerance),
+            unify_plate_colors=self.unify_plate_colors.get(),
         )
 
     def save_layers(self):
