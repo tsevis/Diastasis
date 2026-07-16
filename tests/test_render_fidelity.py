@@ -15,7 +15,7 @@ def _load_cairosvg():
         import cairosvg
         cairosvg.svg2png(bytestring=b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>')
         return cairosvg
-    except Exception:
+    except (ImportError, OSError):
         return None
 
 

@@ -387,8 +387,8 @@ def run_diastasis(
             return None, None, "No visible shapes remain after visibility clipping."
 
     geo_engine = GeometryEngine(use_spatial_index=True)
+    canvas_area = float(svg_width or 0) * float(svg_height or 0)
 
-    dropped_slivers = 0
     if mode == "flat":
         # Enforce area exclusivity across all output layers.
         if not clip_visible_boundaries:
@@ -396,10 +396,7 @@ def run_diastasis(
             if not shapes:
                 return None, None, "No visible shapes remain after flat exclusivity flattening."
 
-        canvas_area_for_slivers = float(svg_width or 0) * float(svg_height or 0)
-        shapes, dropped_slivers = drop_sliver_fragments(
-            shapes, canvas_area_for_slivers, min_fragment_ratio
-        )
+        shapes, dropped_slivers = drop_sliver_fragments(shapes, canvas_area, min_fragment_ratio)
         if not shapes:
             return None, None, "No shapes remain after sliver cleanup."
 
@@ -520,7 +517,6 @@ def run_diastasis(
     for color_id in coloring.values():
         color_counts[color_id] += 1
 
-    canvas_area = float(svg_width or 0) * float(svg_height or 0)
     total_area = sum((shape.geometry.area if shape.geometry else 0.0) for shape in shapes)
     tiny_threshold = canvas_area * 0.0002 if canvas_area > 0 else 0.01
     tiny_count = sum(

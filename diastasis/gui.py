@@ -489,7 +489,7 @@ class DiastasisGUI:
         """svg2png source kwargs: the separated result if requested and available."""
         if self.preview_mode.get() == "Separated":
             data = self.results_by_mode.get(self.get_active_mode())
-            if data:
+            if data and data.get("source_filepath") == self.filepath:
                 layered = build_layered_svg_string(
                     data["shapes"],
                     data["coloring"],
@@ -514,19 +514,21 @@ class DiastasisGUI:
 
         self.process_button.config(state="disabled")
         self.batch_button.config(state="disabled")
+        self.select_button.config(state="disabled")
         self._set_save_buttons_state("disabled")
         self.progress["value"] = 0
         self.progress["maximum"] = 100
         self.results_text.delete(1.0, tk.END)
         self.results_text.insert(tk.END, "Processing...\n")
 
-        thread = threading.Thread(target=lambda: self.run_process_thread(mode), daemon=True)
+        filepath = self.filepath
+        thread = threading.Thread(target=lambda: self.run_process_thread(filepath, mode), daemon=True)
         thread.start()
         self.animate_progress()
 
-    def run_process_thread(self, mode):
+    def run_process_thread(self, filepath, mode):
         try:
-            result = self._run_with_current_options(self.filepath, mode)
+            result = self._run_with_current_options(filepath, mode)
 
             if result and len(result) >= 5:
                 shapes, coloring, summary, svg_width, svg_height = result
@@ -536,6 +538,7 @@ class DiastasisGUI:
                     "summary": summary,
                     "svg_width": svg_width,
                     "svg_height": svg_height,
+                    "source_filepath": filepath,
                 }
                 self.root.after(0, lambda: self.processing_complete(mode, summary))
             else:
@@ -558,6 +561,7 @@ class DiastasisGUI:
         self.progress["value"] = 100
         self.process_button.config(state="normal")
         self.batch_button.config(state="normal")
+        self.select_button.config(state="normal")
 
         current_mode = self.get_active_mode()
         if current_mode == mode:
@@ -574,6 +578,7 @@ class DiastasisGUI:
         self.progress["value"] = 0
         self.process_button.config(state="normal")
         self.batch_button.config(state="normal")
+        self.select_button.config(state="normal")
 
         self.results_text.delete(1.0, tk.END)
         self.results_text.insert(tk.END, f"Error: {error_msg}")
@@ -594,6 +599,7 @@ class DiastasisGUI:
         self.results_text.insert(tk.END, "Batch processing started...\n")
         self.process_button.config(state="disabled")
         self.batch_button.config(state="disabled")
+        self.select_button.config(state="disabled")
 
         thread = threading.Thread(
             target=lambda: self._run_batch_thread(input_dir, output_dir, mode),
@@ -639,6 +645,7 @@ class DiastasisGUI:
         def finish_batch():
             self.process_button.config(state="normal")
             self.batch_button.config(state="normal")
+            self.select_button.config(state="normal")
             self._set_save_buttons_state("disabled")
             self.results_text.insert(
                 tk.END,

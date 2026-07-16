@@ -139,18 +139,22 @@ def shape_element_markup(shape: Shape, fill: str, path_precision: int = 3) -> Op
 
 
 GOLDEN_RATIO_CONJUGATE = 0.618033988749895
+LAYER_COLOR_SATURATION = 0.85
+LAYER_COLOR_VALUE = 0.95
 
 
 def build_layer_color_map(color_ids: Iterable[int]) -> Dict[int, str]:
     """
     Deterministic colors: a fixed palette for the first twelve layers and a
     golden-angle hue walk beyond, so re-runs always produce the same files.
+    Colors stay distinct for practical layer counts (hundreds); quantized
+    hues can repeat only past ~600 layers.
     """
     color_map = dict(BASE_COLOR_MAP)
     for color_id in color_ids:
         if color_id not in color_map:
             hue = (color_id * GOLDEN_RATIO_CONJUGATE) % 1.0
-            r, g, b = colorsys.hsv_to_rgb(hue, 0.85, 0.95)
+            r, g, b = colorsys.hsv_to_rgb(hue, LAYER_COLOR_SATURATION, LAYER_COLOR_VALUE)
             color_map[color_id] = f'#{int(r * 255):02X}{int(g * 255):02X}{int(b * 255):02X}'
     return color_map
 
