@@ -1,10 +1,16 @@
-from typing import Iterable, List, Tuple
-from shapely.geometry import Polygon
-from shapely.validation import make_valid
-from rtree import index
-from svg_parser import Shape
 import multiprocessing
 from itertools import combinations
+from typing import Iterable, List, Tuple
+
+import numpy as np
+import shapely
+from rtree import index
+from shapely.geometry import Polygon
+from shapely.strtree import STRtree
+from shapely.validation import make_valid
+
+from svg_parser import Shape
+
 
 def check_and_calculate_overlap_worker(shapes_pair: Tuple[int, int, Polygon, Polygon]) -> Tuple[int, int, float]:
     """Worker function to check for overlap and calculate the area."""
@@ -14,6 +20,7 @@ def check_and_calculate_overlap_worker(shapes_pair: Tuple[int, int, Polygon, Pol
         if overlap_area > 0:
             return (i, j, overlap_area)
     return None
+
 
 class GeometryEngine:
     def __init__(self, use_spatial_index=True, max_workers=None):
@@ -31,30 +38,83 @@ class GeometryEngine:
 
     def detect_overlaps(self, shapes: List[Shape]) -> List[Tuple[int, int, float]]:
         """Detects all pairs of overlapping shapes and their overlap area."""
-        if self.use_spatial_index:
-            return self.detect_overlaps_spatial(shapes)
-        else:
+        if not self.use_spatial_index:
             return self.parallel_overlap_detection(shapes)
+        if len(shapes) < 2:
+            return []
+        try:
+            return self._detect_overlaps_vectorized(shapes)
+        except Exception:
+            return self._detect_overlaps_pairwise(shapes)
 
     def detect_overlap_pairs(self, shapes: List[Shape]) -> List[Tuple[int, int]]:
-        """
-        Detect overlap adjacency pairs without calculating overlap area.
-        """
-        pairs = []
-        for i, j in self._candidate_pairs(shapes):
-            shape1 = shapes[i]
-            shape2 = shapes[j]
-            if self._bounds_intersect(shape1.geometry.bounds, shape2.geometry.bounds):
-                g1 = self._sanitize_geometry(shape1.geometry)
-                g2 = self._sanitize_geometry(shape2.geometry)
-                if g1.intersects(g2):
-                    intersection = g1.intersection(g2)
-                    if not intersection.is_empty and intersection.area > 0:
-                        pairs.append((i, j))
-        return pairs
+        """Detect overlap adjacency pairs without keeping overlap areas."""
+        return [(i, j) for i, j, _ in self.detect_overlaps(shapes)]
 
-    def detect_overlaps_spatial(self, shapes: List[Shape]) -> List[Tuple[int, int, float]]:
-        """Detects overlaps using a spatial index."""
+    def detect_contacts(self, shapes: List[Shape], touch_policy: str = "any_touch") -> List[Tuple[int, int]]:
+        """
+        Detects all shape pairs that should be treated as conflicting contacts.
+
+        touch_policy:
+            - "any_touch": edge touch, corner touch, or overlap are all conflicts.
+            - "edge_or_overlap": only shared edge/segment or overlap are conflicts;
+              corner-only (point) touches are allowed.
+        """
+        if len(shapes) < 2:
+            return []
+        try:
+            return self._detect_contacts_vectorized(shapes, touch_policy)
+        except Exception:
+            return self._detect_contacts_pairwise(shapes, touch_policy)
+
+    def _detect_overlaps_vectorized(self, shapes: List[Shape]) -> List[Tuple[int, int, float]]:
+        """
+        Bulk overlap detection: one STRtree query for all candidate pairs,
+        then vectorized intersection/area over the candidates.
+        """
+        geometries = self._sanitized_geometry_array(shapes)
+        left, right = self._candidate_pair_arrays(geometries)
+        if left.size == 0:
+            return []
+
+        intersections = shapely.intersection(geometries[left], geometries[right])
+        areas = shapely.area(intersections)
+        keep = areas > 0
+        return [
+            (int(i), int(j), float(area))
+            for i, j, area in zip(left[keep], right[keep], areas[keep])
+        ]
+
+    def _detect_contacts_vectorized(self, shapes: List[Shape], touch_policy: str) -> List[Tuple[int, int]]:
+        geometries = self._sanitized_geometry_array(shapes)
+        left, right = self._candidate_pair_arrays(geometries)
+        if left.size == 0:
+            return []
+
+        if touch_policy == "any_touch":
+            # The candidate query already used the intersects predicate.
+            return [(int(i), int(j)) for i, j in zip(left, right)]
+
+        # Corner-only contacts have zero area and zero length and are allowed.
+        intersections = shapely.intersection(geometries[left], geometries[right])
+        keep = (shapely.area(intersections) > 0) | (shapely.length(intersections) > 0)
+        return [(int(i), int(j)) for i, j in zip(left[keep], right[keep])]
+
+    def _sanitized_geometry_array(self, shapes: List[Shape]) -> np.ndarray:
+        geometries = np.empty(len(shapes), dtype=object)
+        for i, shape in enumerate(shapes):
+            geometries[i] = self._sanitize_geometry(shape.geometry)
+        return geometries
+
+    def _candidate_pair_arrays(self, geometries: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """One bulk STRtree query for all intersecting pairs (i < j)."""
+        tree = STRtree(geometries)
+        left, right = tree.query(geometries, predicate="intersects")
+        keep = left < right
+        return left[keep], right[keep]
+
+    def _detect_overlaps_pairwise(self, shapes: List[Shape]) -> List[Tuple[int, int, float]]:
+        """Per-pair fallback used when the vectorized path fails."""
         overlaps = []
         for i, j in self._candidate_pairs(shapes):
             shape1 = shapes[i]
@@ -68,15 +128,7 @@ class GeometryEngine:
                         overlaps.append((i, j, overlap_area))
         return overlaps
 
-    def detect_contacts(self, shapes: List[Shape], touch_policy: str = "any_touch") -> List[Tuple[int, int]]:
-        """
-        Detects all shape pairs that should be treated as conflicting contacts.
-
-        touch_policy:
-            - "any_touch": edge touch, corner touch, or overlap are all conflicts.
-            - "edge_or_overlap": only shared edge/segment or overlap are conflicts;
-              corner-only (point) touches are allowed.
-        """
+    def _detect_contacts_pairwise(self, shapes: List[Shape], touch_policy: str) -> List[Tuple[int, int]]:
         contacts = []
         for i, j in self._candidate_pairs(shapes):
             shape1 = shapes[i]
@@ -90,10 +142,10 @@ class GeometryEngine:
     def parallel_overlap_detection(self, shapes: List[Shape]) -> List[Tuple[int, int, float]]:
         """Detects overlaps in parallel and calculates their area."""
         shape_pairs = [(i, j, shapes[i].geometry, shapes[j].geometry) for i, j in combinations(range(len(shapes)), 2)]
-        
+
         with multiprocessing.Pool(processes=self.max_workers) as pool:
             results = pool.map(check_and_calculate_overlap_worker, shape_pairs)
-        
+
         return [res for res in results if res is not None]
 
     def calculate_overlap_area(self, shape1: Shape, shape2: Shape) -> float:

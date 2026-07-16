@@ -96,3 +96,56 @@ def test_detect_contacts_handles_invalid_geometry():
 
     contacts = engine.detect_contacts(shapes, touch_policy="any_touch")
     assert isinstance(contacts, list)
+
+
+def _random_shapes(count, seed):
+    import random
+    rng = random.Random(seed)
+    shapes = []
+    for i in range(count):
+        x, y = rng.uniform(0, 200), rng.uniform(0, 200)
+        if i % 3 == 0:
+            shapes.append(Shape(id=i, geometry=Point(x, y).buffer(rng.uniform(3, 12)), metadata={}))
+        else:
+            w, h = rng.uniform(5, 25), rng.uniform(5, 25)
+            shapes.append(Shape(id=i, geometry=box(x, y, x + w, y + h), metadata={}))
+    return shapes
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_vectorized_overlaps_match_pairwise(seed):
+    engine = GeometryEngine(use_spatial_index=True)
+    shapes = _random_shapes(80, seed)
+
+    vectorized = engine._detect_overlaps_vectorized(shapes)
+    pairwise = engine._detect_overlaps_pairwise(shapes)
+
+    assert sorted((i, j) for i, j, _ in vectorized) == sorted((i, j) for i, j, _ in pairwise)
+    vec_areas = {(i, j): a for i, j, a in vectorized}
+    for i, j, area in pairwise:
+        assert abs(vec_areas[(i, j)] - area) < 1e-9
+
+
+@pytest.mark.parametrize("policy", ["any_touch", "edge_or_overlap"])
+def test_vectorized_contacts_match_pairwise(policy):
+    engine = GeometryEngine(use_spatial_index=True)
+    shapes = _random_shapes(80, 3) + [
+        Shape(id=1000, geometry=box(300, 300, 310, 310), metadata={}),
+        Shape(id=1001, geometry=box(310, 300, 320, 310), metadata={}),  # edge touch
+        Shape(id=1002, geometry=box(310, 310, 320, 320), metadata={}),  # corner touch
+    ]
+
+    vectorized = sorted(engine._detect_contacts_vectorized(shapes, policy))
+    pairwise = sorted(engine._detect_contacts_pairwise(shapes, policy))
+    assert vectorized == pairwise
+
+
+def test_vectorized_overlaps_handle_invalid_geometry():
+    engine = GeometryEngine(use_spatial_index=True)
+    bowtie = Polygon([(0, 0), (2, 2), (0, 2), (2, 0), (0, 0)])
+    shapes = [
+        Shape(id=0, geometry=bowtie, metadata={}),
+        Shape(id=1, geometry=box(0, 0, 1, 1), metadata={}),
+    ]
+    overlaps = engine.detect_overlaps(shapes)
+    assert isinstance(overlaps, list)
