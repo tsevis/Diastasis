@@ -92,8 +92,11 @@ Diastasis separates complex SVG artwork into production-ready layers.
 ```bash
 git clone https://github.com/tsevis/Diastasis.git
 cd Diastasis
-pip install -r requirements.txt
+pip install -e ".[gui]"     # library + CLI + GUI dependencies
 ```
+
+This installs the `diastasis` command. For headless use (servers, CI),
+`pip install -e .` is enough — the GUI extras are only needed for `gui.py`.
 
 ## Run
 
@@ -125,20 +128,21 @@ or:
 
 ```bash
 # One file -> output/artwork_layered.svg (+ summary with optimality proof)
-python cli.py artwork.svg -o output/
+diastasis artwork.svg -o output/
 
 # Strict flat separation, one registered SVG file per layer
-python cli.py artwork.svg -o output/ --mode flat --separate-files
+diastasis artwork.svg -o output/ --mode flat --separate-files
 
 # Whole folder with print settings
-python cli.py --batch input_folder/ -o output/ --profile Print
+diastasis --batch input_folder/ -o output/ --profile Print
 
 # Check how heavy a file is before processing
-python cli.py artwork.svg --estimate
+diastasis artwork.svg --estimate
 ```
 
-Run `python cli.py --help` for all options (algorithm, touch policy,
-overlap priority, clipping, performance mode, recoloring).
+`python cli.py ...` works too when running from a source checkout. Run
+`diastasis --help` for all options (algorithm, touch policy, overlap
+priority, clipping, stroke-aware footprints, performance mode, recoloring).
 
 ## Batch Workflow
 
@@ -158,7 +162,7 @@ Each file is processed with the same active settings.
 ## Programmatic Usage
 
 ```python
-from main import run_diastasis, save_layers_to_files
+from diastasis import run_diastasis, save_layers_to_files
 
 shapes, coloring, summary, w, h = run_diastasis(
     "input.svg",

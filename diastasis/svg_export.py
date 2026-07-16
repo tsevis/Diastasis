@@ -96,6 +96,10 @@ def generate_crop_marks_svg(width: float, height: float, mark_length: float = 10
 def get_shape_fill(shape: Shape, fallback_color: str = "#CCCCCC") -> str:
     """
     Return original shape fill color from metadata/style when available.
+
+    Parser-produced metadata already resolves style and inherited fills
+    into metadata['fill']; the style fallback below serves Shape objects
+    constructed directly by API users.
     """
     metadata = shape.metadata or {}
 

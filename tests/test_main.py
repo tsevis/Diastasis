@@ -1,4 +1,3 @@
-import pytest
 from shapely.geometry import Polygon, box
 
 from diastasis.geometry_engine import GeometryEngine

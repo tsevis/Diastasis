@@ -39,6 +39,7 @@ class DiastasisGUI:
         self.clip_visible_boundaries = tk.BooleanVar(value=False)
         self.performance_mode = tk.BooleanVar(value=False)
         self.preserve_colors = tk.BooleanVar(value=True)
+        self.include_strokes = tk.BooleanVar(value=False)
         self.quality_preset = tk.StringVar(value="Balanced")
         self.export_profile = tk.StringVar(value="Illustrator-safe")
         self.flat_algorithm = tk.StringVar(value="minimum_layers")
@@ -150,6 +151,12 @@ class DiastasisGUI:
             variable=self.preserve_colors,
         )
         self.preserve_colors_check.pack(anchor=tk.W)
+        self.include_strokes_check = ttk.Checkbutton(
+            clip_frame,
+            text="Stroke-Aware Footprints (grow shapes by stroke width)",
+            variable=self.include_strokes,
+        )
+        self.include_strokes_check.pack(anchor=tk.W)
 
         perf_frame = ttk.Frame(left_frame)
         perf_frame.pack(fill=tk.X, pady=(0, 8))
@@ -514,6 +521,7 @@ class DiastasisGUI:
                 flat_priority_order=flat_priority_order,
                 clip_visible_boundaries=self.clip_visible_boundaries.get(),
                 performance_mode=self.performance_mode.get(),
+                include_strokes=self.include_strokes.get(),
             )
 
             if result and len(result) >= 5:
@@ -666,6 +674,7 @@ class DiastasisGUI:
             flat_priority_order=flat_priority_order,
             clip_visible_boundaries=self.clip_visible_boundaries.get(),
             performance_mode=self.performance_mode.get(),
+            include_strokes=self.include_strokes.get(),
         )
 
     def save_layers(self):

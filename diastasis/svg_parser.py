@@ -139,8 +139,14 @@ class SVGParser:
                 id_map[element_id] = element
         return id_map
 
-    def _element_to_shape(self, element, matrix: np.ndarray, shape_id: int) -> Optional[Shape]:
-        """Convert one SVG element plus its effective transform into a Shape."""
+    def _element_to_shape(
+        self, element, matrix: np.ndarray, shape_id: int, paint_context=None
+    ) -> Optional[Shape]:
+        """
+        Convert one SVG element plus its effective transform into a Shape.
+        paint_context redirects paint inheritance (used for <use> clones,
+        which inherit from the <use> element, not the target's location).
+        """
         polygon = self.convert_to_polygon(element)
         if polygon is None:
             return None
@@ -149,14 +155,14 @@ class SVGParser:
         if self.include_strokes:
             # SVG paints the stroke in user space before transforms apply,
             # so the footprint must be grown before the transform.
-            polygon, stroked = self._apply_stroke_footprint(polygon, element)
+            polygon, stroked = self._apply_stroke_footprint(polygon, element, paint_context)
 
         polygon, transformed = self.apply_transform(polygon, matrix)
         if polygon is None or polygon.is_empty:
             return None
 
         localname = self._localname(element)
-        metadata = self.preserve_metadata(element)
+        metadata = self.preserve_metadata(element, paint_context)
         d_attr = None
         native_shape = None
         # Original markup stays valid for export only while the geometry is
@@ -192,25 +198,30 @@ class SVGParser:
             [self.parse_dimension(use.get('x', 0)), self.parse_dimension(use.get('y', 0))],
         )
         matrix = self.combined_transform(use) @ offset @ self.parse_transform(target.get('transform') or '')
-        return self._element_to_shape(target, matrix, shape_id)
+        # The clone lives in the <use> element's shadow tree, so paint
+        # properties inherit from the <use> element and its ancestors.
+        return self._element_to_shape(target, matrix, shape_id, paint_context=use)
 
-    def _apply_stroke_footprint(self, geometry, element) -> Tuple[BaseGeometry, bool]:
+    def _apply_stroke_footprint(self, geometry, element, paint_context=None) -> Tuple[BaseGeometry, bool]:
         """
         Grow a geometry by half its effective stroke width so the analyzed
         area matches the painted footprint. Returns (geometry, was_grown).
+        Round joins are a close approximation of SVG's default miter joins;
+        acute corners may extend slightly further when actually rendered.
         """
-        stroke = self._effective_paint(element, 'stroke')
+        stroke = self._effective_paint(element, 'stroke', paint_context)
         if not stroke or stroke.strip().lower() in ('none', 'transparent'):
             return geometry, False
 
-        width_value = self._effective_paint(element, 'stroke-width')
+        width_value = self._effective_paint(element, 'stroke-width', paint_context)
         stroke_width = self.parse_dimension(width_value) if width_value is not None else 1.0
         if stroke_width <= 0:
             return geometry, False
 
         try:
             return geometry.buffer(stroke_width / 2.0), True
-        except Exception:
+        except Exception as buffer_error:
+            print(f"Warning: Could not grow stroke footprint: {buffer_error}")
             return geometry, False
 
     def _is_rendered(self, element) -> bool:
@@ -376,6 +387,11 @@ class SVGParser:
         ry_attr = element.get('ry')
         rx = self.parse_dimension(rx_attr) if rx_attr is not None else None
         ry = self.parse_dimension(ry_attr) if ry_attr is not None else None
+        # SVG treats a negative radius as unspecified ("auto").
+        if rx is not None and rx < 0:
+            rx = None
+        if ry is not None and ry < 0:
+            ry = None
         if rx is None and ry is None:
             return 0.0, 0.0
         if rx is None:
@@ -402,7 +418,10 @@ class SVGParser:
             for step in range(corner_samples):
                 angle = math.radians(start_deg + 90.0 * step / (corner_samples - 1))
                 coords.append((cx + rx * math.cos(angle), cy + ry * math.sin(angle)))
-        return Polygon(coords)
+        ring = Polygon(coords)
+        if not ring.is_valid:
+            ring = self._only_polygonal(make_valid(ring))
+        return ring
 
     def _parse_points(self, points_str: str) -> Optional[List[Tuple[float, float]]]:
         """Parse a polygon/polyline points attribute into coordinate pairs."""
@@ -520,16 +539,16 @@ class SVGParser:
                 return unary_union(polygons)
         return None
 
-    def preserve_metadata(self, element) -> Dict:
+    def preserve_metadata(self, element, paint_context=None) -> Dict:
         """Preserves relevant metadata, resolving inherited paint properties."""
         return {
             'style': element.get('style'),
             'transform': element.get('transform'),
             'id': element.get('id'),
-            'fill': self._effective_paint(element, 'fill'),
+            'fill': self._effective_paint(element, 'fill', paint_context),
             'fill-rule': element.get('fill-rule'),
-            'stroke': self._effective_paint(element, 'stroke'),
-            'stroke-width': self._effective_paint(element, 'stroke-width'),
+            'stroke': self._effective_paint(element, 'stroke', paint_context),
+            'stroke-width': self._effective_paint(element, 'stroke-width', paint_context),
         }
 
     def _style_property(self, style: Optional[str], prop: str) -> Optional[str]:
@@ -540,19 +559,24 @@ class SVGParser:
         return match.group(1).strip() if match else None
 
     def _own_paint(self, element, prop: str) -> Optional[str]:
-        """The element's own value for a paint property (attribute or style)."""
-        value = element.get(prop) or self._style_property(element.get('style'), prop)
+        """
+        The element's own value for a paint property. Per the CSS cascade,
+        the inline style overrides the presentation attribute.
+        """
+        value = self._style_property(element.get('style'), prop) or element.get(prop)
         if value and value.strip().lower() == 'inherit':
             return None
         return value
 
-    def _effective_paint(self, element, prop: str) -> Optional[str]:
+    def _effective_paint(self, element, prop: str, inherit_from=None) -> Optional[str]:
         """
         Resolve a paint property with SVG inheritance: the element's own
-        value wins, otherwise the nearest ancestor that sets it.
+        value wins, otherwise the nearest ancestor that sets it. When
+        inherit_from is given (a <use> element), inheritance starts there
+        (including its own attributes) instead of the element's parent.
         """
         value = self._own_paint(element, prop)
-        node = element.getparent()
+        node = inherit_from if inherit_from is not None else element.getparent()
         while value is None and node is not None:
             if isinstance(node.tag, str):
                 value = self._own_paint(node, prop)

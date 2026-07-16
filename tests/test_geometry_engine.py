@@ -155,3 +155,12 @@ def test_detect_contacts_rejects_unknown_touch_policy(simple_shapes):
     engine = GeometryEngine(use_spatial_index=True)
     with pytest.raises(ValueError):
         engine.detect_contacts(simple_shapes, touch_policy="bogus")
+
+
+def test_count_candidate_pairs_matches_bbox_candidates(simple_shapes):
+    engine = GeometryEngine(use_spatial_index=True)
+    vectorized_count = engine.count_candidate_pairs(simple_shapes)
+    loop_count = sum(1 for _ in engine._candidate_pairs(simple_shapes))
+    assert vectorized_count == loop_count
+    assert engine.count_candidate_pairs([]) == 0
+    assert engine.count_candidate_pairs(simple_shapes[:1]) == 0

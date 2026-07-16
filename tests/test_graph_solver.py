@@ -54,8 +54,7 @@ def test_optimize_coloring():
     # But if we have a more complex graph where greedy might use more colors than optimal
     # Let's use a simple case where a node can be recolored to a smaller color
     graph.add_edges_from([(0, 1), (1, 2), (2, 3)]) # Path graph P4
-    initial_coloring = {0: 0, 1: 1, 2: 0, 3: 1} # A valid 2-coloring
-    
+
     # Introduce a scenario where optimization might reduce colors
     # For example, if node 2 was colored 2 instead of 0
     initial_coloring_suboptimal = {0: 0, 1: 1, 2: 2, 3: 1} # 3 colors

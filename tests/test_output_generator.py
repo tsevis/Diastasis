@@ -2,8 +2,7 @@ import pytest
 import os
 from diastasis.output_generator import OutputGenerator
 from diastasis.svg_parser import Shape
-from shapely.geometry import Polygon, box
-import networkx as nx # For coloring dictionary
+from shapely.geometry import box
 
 # Fixture for creating simple shapes
 @pytest.fixture

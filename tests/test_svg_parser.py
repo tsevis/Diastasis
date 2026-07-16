@@ -1,5 +1,4 @@
 import pytest
-import os
 from diastasis.svg_parser import SVGParser, Shape
 from shapely.geometry import Polygon, Point, box
 
@@ -91,7 +90,8 @@ def test_preserve_metadata():
     assert metadata['id'] == 'test_id'
     assert metadata['style'] == 'fill:red;'
     assert metadata['transform'] == 'translate(10,10)'
-    assert metadata['fill'] == '#123456'
+    # Per the CSS cascade, the inline style's fill overrides the attribute.
+    assert metadata['fill'] == 'red'
     assert metadata['stroke'] == '#654321'
 
 
@@ -309,7 +309,6 @@ def test_rounded_rect_geometry_matches_expected_area():
     assert abs(polygon.area - expected) < 5
     # The bounding box is unchanged; corners are cut.
     assert polygon.bounds == (0, 0, 100, 60)
-    from shapely.geometry import Point
     assert not polygon.contains(Point(1, 1))       # corner cut away
     assert polygon.contains(Point(50, 30))         # center intact
 
@@ -392,3 +391,47 @@ def test_stroke_footprint_creates_conflicts_between_near_shapes(tmp_path):
 
     stroked_shapes, _, _ = SVGParser(include_strokes=True).load_svg(str(file_path))
     assert len(engine.detect_overlaps(stroked_shapes)) == 1
+
+
+def test_use_inherits_paint_from_use_element(tmp_path):
+    # Per SVG's shadow-tree model, a <use> clone inherits paint from the
+    # <use> element (and its ancestors), not from the defs location.
+    svg_content = """
+    <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <rect id="tpl" x="0" y="0" width="10" height="10" />
+      </defs>
+      <use href="#tpl" x="20" y="20" fill="#ff0000" stroke="#0000ff" stroke-width="4" />
+      <g fill="#00ff00">
+        <use href="#tpl" x="50" y="50" />
+      </g>
+    </svg>
+    """
+    file_path = tmp_path / "use_paint.svg"
+    file_path.write_text(svg_content)
+
+    shapes, _, _ = SVGParser().load_svg(str(file_path))
+    assert shapes[0].metadata['fill'] == '#ff0000'
+    assert shapes[0].metadata['stroke'] == '#0000ff'
+    assert shapes[1].metadata['fill'] == '#00ff00'  # inherited via the use's ancestor
+
+    # include_strokes must also honor the use element's stroke.
+    stroked, _, _ = SVGParser(include_strokes=True).load_svg(str(file_path))
+    assert stroked[0].geometry.bounds == (18, 18, 32, 32)
+
+
+def test_style_overrides_presentation_attribute():
+    from lxml import etree
+    parser = SVGParser()
+    element = etree.fromstring('<rect fill="red" style="fill:blue" width="1" height="1" />')
+    assert parser._own_paint(element, 'fill') == 'blue'
+
+
+def test_negative_corner_radius_treated_as_auto():
+    from lxml import etree
+    parser = SVGParser()
+    element = etree.fromstring('<rect x="0" y="0" width="20" height="40" rx="-5" ry="3" />')
+    assert parser._rect_corner_radii(element, 20, 40) == (3.0, 3.0)
+    polygon = parser.convert_to_polygon(element)
+    # Corners are rounded (3,3), so the corner point is cut away.
+    assert not polygon.contains(Point(0.3, 0.3))
