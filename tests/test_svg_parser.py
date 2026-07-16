@@ -275,9 +275,13 @@ def test_native_shape_captured_for_untransformed_elements(tmp_path):
     parser = SVGParser()
     shapes, _, _ = parser.load_svg(str(file_path))
     assert shapes[0].native_shape == {'tag': 'circle', 'attrs': {'cx': '20', 'cy': '20', 'r': '10'}}
-    # Transformed elements and rounded rects must not carry native markup.
+    # Transformed elements must not carry native markup.
     assert shapes[1].native_shape is None
-    assert shapes[2].native_shape is None
+    # Rounded rects re-emit natively now that their geometry is analyzed correctly.
+    assert shapes[2].native_shape == {
+        'tag': 'rect',
+        'attrs': {'x': '0', 'y': '0', 'width': '10', 'height': '10', 'rx': '3'},
+    }
 
 
 def test_native_shape_skipped_for_unit_suffixed_attributes():
@@ -292,4 +296,32 @@ def test_native_shape_kept_for_zero_corner_radius():
     parser = SVGParser()
     element = etree.fromstring('<rect x="0" y="0" width="10" height="10" rx="0" />')
     native = parser._native_shape(element, 'rect')
-    assert native == {'tag': 'rect', 'attrs': {'x': '0', 'y': '0', 'width': '10', 'height': '10'}}
+    assert native == {'tag': 'rect', 'attrs': {'x': '0', 'y': '0', 'width': '10', 'height': '10', 'rx': '0'}}
+
+
+def test_rounded_rect_geometry_matches_expected_area():
+    from lxml import etree
+    parser = SVGParser()
+    element = etree.fromstring('<rect x="0" y="0" width="100" height="60" rx="10" />')
+    polygon = parser.convert_to_polygon(element)
+    # Area = w*h - (4 - pi) * rx * ry = 6000 - (4 - pi) * 100 = ~5914.2
+    expected = 100 * 60 - (4 - 3.14159265) * 10 * 10
+    assert abs(polygon.area - expected) < 5
+    # The bounding box is unchanged; corners are cut.
+    assert polygon.bounds == (0, 0, 100, 60)
+    from shapely.geometry import Point
+    assert not polygon.contains(Point(1, 1))       # corner cut away
+    assert polygon.contains(Point(50, 30))         # center intact
+
+
+def test_rounded_rect_radii_clamped_and_defaulted():
+    from lxml import etree
+    parser = SVGParser()
+    # ry omitted -> equals rx; rx larger than half width -> clamped.
+    element = etree.fromstring('<rect x="0" y="0" width="20" height="40" rx="50" />')
+    rx, ry = parser._rect_corner_radii(element, 20, 40)
+    assert rx == 10  # clamped to width/2
+    assert ry == 20  # defaulted to rx, clamped to height/2
+    polygon = parser.convert_to_polygon(element)
+    assert polygon.is_valid
+    assert polygon.bounds == (0, 0, 20, 40)

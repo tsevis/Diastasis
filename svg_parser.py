@@ -93,7 +93,7 @@ class SVGParser:
 
     # Attributes captured for lossless native re-emission per element kind.
     NATIVE_ATTRS = {
-        'rect': ('x', 'y', 'width', 'height'),
+        'rect': ('x', 'y', 'width', 'height', 'rx', 'ry'),
         'circle': ('cx', 'cy', 'r'),
         'ellipse': ('cx', 'cy', 'rx', 'ry'),
         'polygon': ('points',),
@@ -201,10 +201,6 @@ class SVGParser:
         attr_names = self.NATIVE_ATTRS.get(localname)
         if not attr_names:
             return None
-        # Rounded rects are analyzed as sharp boxes, so re-emitting the
-        # original markup would not match the analyzed geometry.
-        if localname == 'rect' and self._rect_is_rounded(element):
-            return None
         attrs = {name: element.get(name) for name in attr_names if element.get(name) is not None}
         # Unit-suffixed values (10mm, 50%) are analyzed as bare numbers, so
         # re-emitting them verbatim would not match the analyzed geometry.
@@ -214,18 +210,6 @@ class SVGParser:
                 return None
         tag = 'polygon' if localname == 'polyline' else localname
         return {'tag': tag, 'attrs': attrs}
-
-    def _rect_is_rounded(self, element) -> bool:
-        for name in ('rx', 'ry'):
-            value = element.get(name)
-            if value is None:
-                continue
-            try:
-                if float(value) != 0:
-                    return True
-            except ValueError:
-                return True
-        return False
 
     @staticmethod
     def _localname(element) -> str:
@@ -311,6 +295,9 @@ class SVGParser:
                 height = self.parse_dimension(element.get('height', 0))
                 if width == 0 or height == 0:
                     return None
+                rx, ry = self._rect_corner_radii(element, width, height)
+                if rx > 0 and ry > 0:
+                    return self._rounded_rect_polygon(x, y, width, height, rx, ry)
                 return box(x, y, x + width, y + height)
             elif element.tag.endswith('circle'):
                 cx = self.parse_dimension(element.get('cx', 0))
@@ -351,6 +338,40 @@ class SVGParser:
         except Exception as e:
             print(f"Could not convert element to polygon: {e}")
         return None
+
+    def _rect_corner_radii(self, element, width: float, height: float) -> Tuple[float, float]:
+        """Resolve rect rx/ry per SVG rules: each defaults to the other, clamped to half-size."""
+        rx_attr = element.get('rx')
+        ry_attr = element.get('ry')
+        rx = self.parse_dimension(rx_attr) if rx_attr is not None else None
+        ry = self.parse_dimension(ry_attr) if ry_attr is not None else None
+        if rx is None and ry is None:
+            return 0.0, 0.0
+        if rx is None:
+            rx = ry
+        if ry is None:
+            ry = rx
+        return max(0.0, min(rx, width / 2)), max(0.0, min(ry, height / 2))
+
+    def _rounded_rect_polygon(
+        self, x: float, y: float, width: float, height: float, rx: float, ry: float,
+        corner_samples: int = 9,
+    ) -> Polygon:
+        """Build a rounded rectangle with sampled quarter-ellipse corners."""
+        # Corner arc centers and their start angles, walking the outline in
+        # one consistent direction (angles in the ellipse parameterization).
+        corners = [
+            (x + width - rx, y + height - ry, 0.0),   # bottom-right
+            (x + rx, y + height - ry, 90.0),          # bottom-left
+            (x + rx, y + ry, 180.0),                  # top-left
+            (x + width - rx, y + ry, 270.0),          # top-right
+        ]
+        coords = []
+        for cx, cy, start_deg in corners:
+            for step in range(corner_samples):
+                angle = math.radians(start_deg + 90.0 * step / (corner_samples - 1))
+                coords.append((cx + rx * math.cos(angle), cy + ry * math.sin(angle)))
+        return Polygon(coords)
 
     def _parse_points(self, points_str: str) -> Optional[List[Tuple[float, float]]]:
         """Parse a polygon/polyline points attribute into coordinate pairs."""
