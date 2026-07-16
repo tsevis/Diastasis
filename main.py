@@ -1,88 +1,20 @@
-import os
 from collections import defaultdict
 import networkx as nx
 from rtree import index
-from shapely.geometry import Polygon, MultiPolygon, GeometryCollection
 from shapely.ops import unary_union
 from shapely.validation import make_valid
 from graph_solver import GraphSolver
 from svg_parser import SVGParser, Shape
 from geometry_engine import GeometryEngine
-import random
-import re
-
-# Helper function to convert Shapely Polygon to SVG path 'd' attribute
-def polygon_to_svg_path_d(polygon, precision=3):
-    if not polygon:
-        return ""
-
-    polygons = []
-    if isinstance(polygon, Polygon):
-        polygons = [polygon]
-    elif isinstance(polygon, MultiPolygon):
-        polygons = list(polygon.geoms)
-    elif isinstance(polygon, GeometryCollection):
-        polygons = [geom for geom in polygon.geoms if isinstance(geom, Polygon)]
-    else:
-        return ""
-
-    path_data = []
-
-    for poly in polygons:
-        if poly.is_empty:
-            continue
-
-        # Exterior ring
-        exterior_coords = poly.exterior.coords
-        if exterior_coords:
-            path_data.append(f"M {exterior_coords[0][0]:.{precision}f} {exterior_coords[0][1]:.{precision}f}")
-            for x, y in exterior_coords[1:]:
-                path_data.append(f"L {x:.{precision}f} {y:.{precision}f}")
-            path_data.append("Z")
-
-        # Interior rings (holes)
-        for interior_ring in poly.interiors:
-            interior_coords = interior_ring.coords
-            if interior_coords:
-                path_data.append(f"M {interior_coords[0][0]:.{precision}f} {interior_coords[0][1]:.{precision}f}")
-                for x, y in interior_coords[1:]:
-                    path_data.append(f"L {x:.{precision}f} {y:.{precision}f}")
-                path_data.append("Z")
-
-    return " ".join(path_data)
-
-# Helper function to generate SVG crop marks
-def generate_crop_marks_svg(width, height, mark_length=10):
-    marks_svg = []
-    # Top-left corner
-    marks_svg.append(f'<path d="M 0 {mark_length} L 0 0 L {mark_length} 0" stroke="black" stroke-width="0.5" fill="none"/>')
-    # Top-right corner
-    marks_svg.append(f'<path d="M {width - mark_length} 0 L {width} 0 L {width} {mark_length}" stroke="black" stroke-width="0.5" fill="none"/>')
-    # Bottom-left corner
-    marks_svg.append(f'<path d="M 0 {height - mark_length} L 0 {height} L {mark_length} {height}" stroke="black" stroke-width="0.5" fill="none"/>')
-    # Bottom-right corner
-    marks_svg.append(f'<path d="M {width - mark_length} {height} L {width} {height} L {width} {height - mark_length}" stroke="black" stroke-width="0.5" fill="none"/>')
-    return "\n".join(marks_svg)
-
-
-def get_shape_fill(shape, fallback_color="#CCCCCC"):
-    """
-    Return original shape fill color from metadata/style when available.
-    """
-    metadata = shape.metadata or {}
-
-    fill_attr = metadata.get("fill")
-    if fill_attr and str(fill_attr).strip().lower() not in ("none", "transparent"):
-        return fill_attr
-
-    style = metadata.get("style") or ""
-    style_match = re.search(r"(?:^|;)\s*fill\s*:\s*([^;]+)", style, flags=re.IGNORECASE)
-    if style_match:
-        style_fill = style_match.group(1).strip()
-        if style_fill.lower() not in ("none", "transparent"):
-            return style_fill
-
-    return fallback_color
+# Export helpers live in svg_export; re-exported here for API compatibility.
+from svg_export import (  # noqa: F401
+    generate_crop_marks_svg,
+    get_shape_fill,
+    polygon_to_svg_path_d,
+    save_layers_to_files,
+    save_layers_to_separate_files,
+    save_single_layer_file,
+)
 
 
 def build_flat_conflict_graph(shapes, geo_engine, touch_policy="any_touch"):
@@ -585,116 +517,3 @@ def run_diastasis(
 
 
 
-def save_layers_to_files(
-    shapes,
-    coloring,
-    output_dir,
-    original_filename,
-    svg_width,
-    svg_height,
-    preserve_original_colors=False,
-    export_profile="Illustrator-safe",
-): # Updated signature
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-
-    # Use actual SVG dimensions for the SVG canvas
-    width = svg_width # Updated line
-    height = svg_height # Updated line
-
-    # Define a simple color map. This should ideally be more robust or come from the coloring process.
-    color_map = {
-        0: "#FF0000", 1: "#00FF00", 2: "#0000FF", 3: "#FFFF00",
-        4: "#FF00FF", 5: "#00FFFF", 6: "#FFA500", 7: "#800080",
-        8: "#FFC0CB", 9: "#A52A2A", 10: "#808080", 11: "#000000"
-    }
-    # Extend color_map if more colors are needed
-    for i in range(len(color_map), max(coloring.keys(), default=-1) + 1):
-        color_map[i] = '#%06X' % random.randint(0, 0xFFFFFF)
-
-
-    profile = export_profile or "Illustrator-safe"
-    if profile == "Web":
-        path_precision = 2
-        include_crop_marks = False
-    elif profile == "Print":
-        path_precision = 4
-        include_crop_marks = True
-    else:
-        path_precision = 3
-        include_crop_marks = True
-
-    layered_svg_content = (
-        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
-        f'xmlns="http://www.w3.org/2000/svg" data-export-profile="{profile}">\n'
-    )
-
-    # Sort color_ids to ensure consistent layer order
-    sorted_color_ids = sorted(coloring.keys())
-
-    for color_id in sorted_color_ids:
-        color_shapes = coloring[color_id]
-        layer_name = f"Layer_Color_{color_id}" # Illustrator will use this as layer name
-        fill_color = color_map.get(color_id, "#CCCCCC") # Default to grey if color not in map
-
-        layered_svg_content += f'  <g id="{layer_name}">' + '\n'
-        for shape_id in color_shapes:
-            shape = shapes[shape_id]
-            path_d = ""
-            fill_rule = ""
-            if shape.d_attribute: # If original d_attribute exists (for path elements)
-                path_d = shape.d_attribute
-            else: # For other shapes (rect, circle, polygon) converted to Shapely Polygon
-                path_d = polygon_to_svg_path_d(shape.geometry, precision=path_precision)
-                # Generated paths encode holes as extra subpaths; even-odd makes them render.
-                fill_rule = ' fill-rule="evenodd"'
-
-            if path_d: # Only add if path_d is not empty
-                path_fill = get_shape_fill(shape, fallback_color=fill_color) if preserve_original_colors else fill_color
-                layered_svg_content += f'    <path d="{path_d}" fill="{path_fill}"{fill_rule} stroke="none"/>' + '\n'
-        layered_svg_content += '  </g>' + '\n'
-
-    if include_crop_marks:
-        crop_marks_svg = generate_crop_marks_svg(width, height)
-        layered_svg_content += f'  <g id="Crop_Marks">' + '\n' + f'{crop_marks_svg}' + '\n' + '  </g>' + '\n'
-
-    layered_svg_content += '</svg>' + '\n' # Add a final newline for good measure
-
-    # Define the output filepath for the single layered SVG
-    output_filepath = os.path.join(output_dir, f"{original_filename}_layered.svg")
-
-    with open(output_filepath, 'w') as f:
-        f.write(layered_svg_content)
-
-    print(f"Layered SVG saved to: {output_filepath}")
-
-
-def save_single_layer_file(shapes, output_filepath, svg_width, svg_height):
-    """
-    Save all processed shapes into one single SVG layer.
-    Useful for exporting clipped-visible results as one flat layer.
-    """
-    width = svg_width
-    height = svg_height
-
-    single_layer_svg = (
-        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
-        f'xmlns="http://www.w3.org/2000/svg">\n'
-    )
-    single_layer_svg += '  <g id="Single_Clipped_Layer">\n'
-
-    for shape in shapes:
-        path_d = shape.d_attribute if shape.d_attribute else polygon_to_svg_path_d(shape.geometry)
-        if not path_d:
-            continue
-
-        fill_rule = "" if shape.d_attribute else ' fill-rule="evenodd"'
-        fill = get_shape_fill(shape, fallback_color="#000000")
-        single_layer_svg += f'    <path d="{path_d}" fill="{fill}"{fill_rule} stroke="none"/>\n'
-
-    single_layer_svg += "  </g>\n</svg>\n"
-
-    with open(output_filepath, "w") as f:
-        f.write(single_layer_svg)
-
-    print(f"Single layer SVG saved to: {output_filepath}")
