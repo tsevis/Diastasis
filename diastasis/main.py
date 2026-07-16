@@ -319,6 +319,32 @@ def build_flat_coloring_from_graph(graph, algorithm="minimum_layers", num_layers
     return solver.solve_coloring(graph, algorithm=algorithm, use_optimizer=False, num_layers=num_layers)
 
 
+def drop_sliver_fragments(shapes, canvas_area, min_area_ratio):
+    """
+    Drop fragments smaller than min_area_ratio of the canvas area.
+    Returns (kept_shapes, dropped_count). Sub-visible slivers left over
+    from flattening otherwise inflate conflicts and layer counts.
+    """
+    if min_area_ratio <= 0 or canvas_area <= 0:
+        return shapes, 0
+
+    threshold = canvas_area * min_area_ratio
+    kept = []
+    for shape in shapes:
+        if shape.geometry is None or shape.geometry.area < threshold:
+            continue
+        kept.append(
+            Shape(
+                id=len(kept),
+                geometry=shape.geometry,
+                metadata=shape.metadata,
+                d_attribute=shape.d_attribute,
+                native_shape=shape.native_shape,
+            )
+        )
+    return kept, len(shapes) - len(kept)
+
+
 def run_diastasis(
     svg_filepath,
     algorithm="minimum_layers",
@@ -333,6 +359,7 @@ def run_diastasis(
     performance_mode=False,
     performance_shape_threshold=1200,
     include_strokes=False,
+    min_fragment_ratio=0.0,
 ):
     parser = SVGParser(include_strokes=include_strokes)
     shapes, svg_width, svg_height = parser.load_svg(svg_filepath)
@@ -360,12 +387,20 @@ def run_diastasis(
 
     geo_engine = GeometryEngine(use_spatial_index=True)
 
+    dropped_slivers = 0
     if mode == "flat":
         # Enforce area exclusivity across all output layers.
         if not clip_visible_boundaries:
             shapes = make_shapes_area_disjoint(shapes, priority_order=flat_priority_order)
             if not shapes:
                 return None, None, "No visible shapes remain after flat exclusivity flattening."
+
+        canvas_area_for_slivers = float(svg_width or 0) * float(svg_height or 0)
+        shapes, dropped_slivers = drop_sliver_fragments(
+            shapes, canvas_area_for_slivers, min_fragment_ratio
+        )
+        if not shapes:
+            return None, None, "No shapes remain after sliver cleanup."
 
         graph = build_flat_conflict_graph(shapes, geo_engine, touch_policy=flat_touch_policy)
 
@@ -449,6 +484,8 @@ def run_diastasis(
             "smallest_first": "Smallest first",
         }.get(flat_priority_order, "Source order")
         summary += f"Flat overlap priority: {priority_label}\n"
+        if min_fragment_ratio > 0:
+            summary += f"Sliver fragments dropped: {dropped_slivers} (< {min_fragment_ratio:.4%} of canvas)\n"
         lower_bound = flat_layer_lower_bound(graph)
         summary += f"Flat minimum proven required layers: {lower_bound}\n"
         if num_colors == lower_bound:

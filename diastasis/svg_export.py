@@ -3,8 +3,8 @@ SVG export: writes processed layers back out with the highest fidelity
 available per shape — original path data, original native element markup,
 or a generated path, in that order.
 """
+import colorsys
 import os
-import random
 import re
 from typing import Dict, Iterable, List, Optional, Tuple
 from xml.sax.saxutils import quoteattr
@@ -138,12 +138,20 @@ def shape_element_markup(shape: Shape, fill: str, path_precision: int = 3) -> Op
     return f'<path d="{path_d}" fill={_attr(fill)} fill-rule="evenodd" stroke="none"/>'
 
 
+GOLDEN_RATIO_CONJUGATE = 0.618033988749895
+
+
 def build_layer_color_map(color_ids: Iterable[int]) -> Dict[int, str]:
-    """Stable colors for the first twelve layers, random beyond that."""
+    """
+    Deterministic colors: a fixed palette for the first twelve layers and a
+    golden-angle hue walk beyond, so re-runs always produce the same files.
+    """
     color_map = dict(BASE_COLOR_MAP)
     for color_id in color_ids:
         if color_id not in color_map:
-            color_map[color_id] = '#%06X' % random.randint(0, 0xFFFFFF)
+            hue = (color_id * GOLDEN_RATIO_CONJUGATE) % 1.0
+            r, g, b = colorsys.hsv_to_rgb(hue, 0.85, 0.95)
+            color_map[color_id] = f'#{int(r * 255):02X}{int(g * 255):02X}{int(b * 255):02X}'
     return color_map
 
 

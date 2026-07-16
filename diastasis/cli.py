@@ -58,6 +58,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--performance", action="store_true", help="Simplify geometry on very large files.")
     parser.add_argument(
+        "--drop-slivers", type=float, default=0.0, metavar="RATIO",
+        help="flat mode: drop fragments smaller than RATIO of the canvas area (e.g. 0.0001).",
+    )
+    parser.add_argument(
         "--profile", choices=sorted(EXPORT_PROFILES), default="Illustrator-safe",
         help="Export profile (default: Illustrator-safe).",
     )
@@ -91,6 +95,7 @@ def _process_file(svg_path: str, args: argparse.Namespace) -> bool:
             clip_visible_boundaries=args.clip,
             performance_mode=args.performance,
             include_strokes=args.include_strokes,
+            min_fragment_ratio=args.drop_slivers,
         )
         if result[0] is None:
             print(f"error: {svg_path}: {result[2]}", file=sys.stderr)

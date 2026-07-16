@@ -119,3 +119,14 @@ def test_shape_element_markup_escapes_native_attrs_and_fill():
     )
     markup = shape_element_markup(shape, fill='red"><evil')
     assert "<evil" not in markup
+
+
+def test_layer_color_map_is_deterministic_beyond_base_palette():
+    from diastasis.svg_export import build_layer_color_map
+    ids = list(range(30))
+    first = build_layer_color_map(ids)
+    second = build_layer_color_map(ids)
+    assert first == second
+    # All colors are well-formed hex and distinct.
+    assert all(len(c) == 7 and c.startswith('#') for c in first.values())
+    assert len(set(first[i] for i in ids)) == len(ids)

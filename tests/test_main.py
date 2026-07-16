@@ -371,3 +371,40 @@ def test_run_diastasis_recolors_rest_when_background_forced_separate(tmp_path):
         color for color, ids in grouped_coloring.items() if largest_id in ids
     ]
     assert len(grouped_coloring[background_layers[0]]) == 1
+
+
+def test_drop_sliver_fragments_removes_small_pieces():
+    from diastasis.main import drop_sliver_fragments
+    shapes = [
+        Shape(id=0, geometry=box(0, 0, 50, 50), metadata={}),
+        Shape(id=1, geometry=box(60, 60, 60.05, 60.05), metadata={}),  # sliver
+    ]
+    kept, dropped = drop_sliver_fragments(shapes, canvas_area=100 * 100, min_area_ratio=0.0001)
+    assert dropped == 1
+    assert len(kept) == 1
+    assert kept[0].geometry.area == 2500
+    # Disabled by default: nothing dropped.
+    kept_all, dropped_none = drop_sliver_fragments(shapes, 100 * 100, 0.0)
+    assert dropped_none == 0 and len(kept_all) == 2
+
+
+def test_run_diastasis_flat_sliver_cleanup(tmp_path):
+    # The top rect nearly covers the bottom one, leaving a thin sliver after
+    # flattening; with cleanup enabled the sliver disappears from output.
+    svg_content = """
+    <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="50" height="50" />
+      <rect x="0.2" y="0" width="50" height="50" />
+    </svg>
+    """
+    svg_file = tmp_path / "sliver.svg"
+    svg_file.write_text(svg_content)
+
+    shapes_kept, _, _, _, _ = run_diastasis(str(svg_file), mode="flat")
+    shapes_clean, _, summary, _, _ = run_diastasis(
+        str(svg_file), mode="flat", min_fragment_ratio=0.002
+    )
+
+    assert len(shapes_kept) == 2
+    assert len(shapes_clean) == 1
+    assert "Sliver fragments dropped: 1" in summary
