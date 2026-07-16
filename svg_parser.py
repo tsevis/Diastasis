@@ -11,11 +11,14 @@ import math
 import re
 
 class Shape:
-    def __init__(self, id, geometry, metadata, d_attribute=None):
+    def __init__(self, id, geometry, metadata, d_attribute=None, native_shape=None):
         self.id = id
         self.geometry = geometry
         self.metadata = metadata
         self.d_attribute = d_attribute # Store d_attribute if provided
+        # Original element tag/attrs for lossless export, valid only while
+        # the geometry is untouched (pipelines that alter geometry drop it).
+        self.native_shape = native_shape
 
 class SVGParser:
     # Points sampled per curved segment (Bezier/arc) when polygonizing paths.
@@ -58,52 +61,139 @@ class SVGParser:
             return 0.0
 
     def get_svg_dimensions(self, root) -> Tuple[float, float]:
-        """Get SVG dimensions, handling units properly."""
-        width_str = root.get('width', '0')
-        height_str = root.get('height', '0')
-        
-        width = self.parse_dimension(width_str)
-        height = self.parse_dimension(height_str)
-        
-        # Handle viewBox if width/height are not explicitly set or are 0
-        if width == 0 and height == 0:
-            viewbox = root.get('viewBox')
-            if viewbox:
-                parts = viewbox.split()
-                if len(parts) == 4:
-                    try:
-                        width = float(parts[2])
-                        height = float(parts[3])
-                    except ValueError:
-                        width = 800  # Default fallback
-                        height = 600
-        
+        """Get the canvas size in the shapes' coordinate system."""
+        # Shape coordinates live in the viewBox coordinate system when one is
+        # declared (width/height may carry physical units like mm), so the
+        # viewBox must win for the canvas to match the analyzed geometry.
+        viewbox = root.get('viewBox')
+        if viewbox:
+            parts = re.split(r'[\s,]+', viewbox.strip())
+            if len(parts) == 4:
+                try:
+                    width, height = float(parts[2]), float(parts[3])
+                    if width > 0 and height > 0:
+                        return width, height
+                except ValueError:
+                    pass
+
+        width = self.parse_dimension(root.get('width', '0'))
+        height = self.parse_dimension(root.get('height', '0'))
+
         # If we still don't have dimensions, use reasonable defaults
         if width == 0:
             width = 800
         if height == 0:
             height = 600
-            
+
         return width, height
 
+    # Content inside these containers is not rendered directly; it only
+    # appears where a <use> references it.
+    NON_RENDERED_CONTAINERS = {'defs', 'symbol', 'clipPath', 'mask', 'pattern', 'marker'}
+
+    # Attributes captured for lossless native re-emission per element kind.
+    NATIVE_ATTRS = {
+        'rect': ('x', 'y', 'width', 'height'),
+        'circle': ('cx', 'cy', 'r'),
+        'ellipse': ('cx', 'cy', 'rx', 'ry'),
+        'polygon': ('points',),
+        'polyline': ('points',),
+    }
+
     def extract_shapes(self, root) -> List[Shape]:
-        """Extracts shapes from SVG elements."""
+        """Extracts shapes from SVG elements, resolving <use> references."""
         shapes = []
-        for i, element in enumerate(root.iter('{*}rect', '{*}circle', '{*}ellipse', '{*}polygon', '{*}path')):
-            polygon = self.convert_to_polygon(element)
-            if polygon:
-                matrix = self.combined_transform(element)
-                polygon, transformed = self.apply_transform(polygon, matrix)
-                if polygon is None or polygon.is_empty:
-                    continue
-                metadata = self.preserve_metadata(element)
-                d_attr = None
-                # Keep the original path data only when no transform was applied,
-                # so exported paths always match the analyzed geometry.
-                if element.tag.endswith('path') and not transformed:
-                    d_attr = element.get('d', '')
-                shapes.append(Shape(id=i, geometry=polygon, metadata=metadata, d_attribute=d_attr))
+        for element in root.iter('{*}rect', '{*}circle', '{*}ellipse', '{*}polygon', '{*}polyline', '{*}path'):
+            if not self._is_rendered(element):
+                continue
+            shape = self._element_to_shape(element, self.combined_transform(element), len(shapes))
+            if shape is not None:
+                shapes.append(shape)
+
+        for use in root.iter('{*}use'):
+            if not self._is_rendered(use):
+                continue
+            shape = self._resolve_use(root, use, len(shapes))
+            if shape is not None:
+                shapes.append(shape)
+
         return shapes
+
+    def _element_to_shape(self, element, matrix: np.ndarray, shape_id: int) -> Optional[Shape]:
+        """Convert one SVG element plus its effective transform into a Shape."""
+        polygon = self.convert_to_polygon(element)
+        if polygon is None:
+            return None
+        polygon, transformed = self.apply_transform(polygon, matrix)
+        if polygon is None or polygon.is_empty:
+            return None
+
+        localname = self._localname(element)
+        metadata = self.preserve_metadata(element)
+        d_attr = None
+        native_shape = None
+        # Original markup stays valid for export only while untransformed,
+        # so exported elements always match the analyzed geometry.
+        if not transformed:
+            if localname == 'path':
+                d_attr = element.get('d', '')
+            else:
+                native_shape = self._native_shape(element, localname)
+        return Shape(
+            id=shape_id,
+            geometry=polygon,
+            metadata=metadata,
+            d_attribute=d_attr,
+            native_shape=native_shape,
+        )
+
+    def _resolve_use(self, root, use, shape_id: int) -> Optional[Shape]:
+        """Instantiate a <use> reference to a basic shape element."""
+        href = use.get('href') or use.get('{http://www.w3.org/1999/xlink}href')
+        if not href or not href.startswith('#'):
+            return None
+        targets = root.xpath('.//*[@id=$ref]', ref=href[1:])
+        if not targets:
+            return None
+        target = targets[0]
+        if self._localname(target) not in ('rect', 'circle', 'ellipse', 'polygon', 'polyline', 'path'):
+            return None
+
+        # Effective transform: use's ancestor chain (includes use@transform),
+        # then the x/y offset, then the target's own transform.
+        offset = self._transform_matrix(
+            'translate',
+            [self.parse_dimension(use.get('x', 0)), self.parse_dimension(use.get('y', 0))],
+        )
+        matrix = self.combined_transform(use) @ offset @ self.parse_transform(target.get('transform') or '')
+        return self._element_to_shape(target, matrix, shape_id)
+
+    def _is_rendered(self, element) -> bool:
+        """False for content living inside defs/symbol/clipPath/mask/pattern/marker."""
+        node = element.getparent()
+        while node is not None:
+            if isinstance(node.tag, str) and self._localname(node) in self.NON_RENDERED_CONTAINERS:
+                return False
+            node = node.getparent()
+        return True
+
+    def _native_shape(self, element, localname: str) -> Optional[Dict]:
+        """Capture original tag/attrs for lossless export of basic shapes."""
+        attr_names = self.NATIVE_ATTRS.get(localname)
+        if not attr_names:
+            return None
+        # Rounded rects are analyzed as sharp boxes, so re-emitting the
+        # original markup would not match the analyzed geometry.
+        if localname == 'rect' and (element.get('rx') or element.get('ry')):
+            return None
+        attrs = {name: element.get(name) for name in attr_names if element.get(name) is not None}
+        tag = 'polygon' if localname == 'polyline' else localname
+        return {'tag': tag, 'attrs': attrs}
+
+    @staticmethod
+    def _localname(element) -> str:
+        tag = element.tag
+        return tag.rsplit('}', 1)[-1] if isinstance(tag, str) else ''
 
     def combined_transform(self, element) -> np.ndarray:
         """Compose the transform matrices of the element and all its ancestors."""
@@ -205,28 +295,11 @@ class SVGParser:
                 scaled_ellipse = affinity.scale(unit_circle, xfact=rx, yfact=ry, origin=(0,0))
                 # Translate to the correct center
                 return affinity.translate(scaled_ellipse, xoff=cx, yoff=cy)
-            elif element.tag.endswith('polygon'):
-                points_str = element.get('points', '')
-                if not points_str.strip():
-                    return None
-                points = []
-                # Split by space, then by comma
-                # The points attribute is a list of x,y pairs separated by spaces, with x and y separated by commas.
-                # Example: "0,0 10,0 5,10"
-                for p_pair_str in points_str.split(): # Split by space to get "x,y" pairs
-                    coords = p_pair_str.split(',') # Split "x,y" by comma
-                    if len(coords) == 2:
-                        try:
-                            x_coord = self.parse_dimension(coords[0])
-                            y_coord = self.parse_dimension(coords[1])
-                            points.append((x_coord, y_coord))
-                        except ValueError:
-                            print(f"Warning: Malformed coordinate pair in polygon points: {p_pair_str}")
-                            return None
-                    else:
-                        print(f"Warning: Invalid coordinate pair format in polygon points: {p_pair_str}")
-                        return None
-                if len(points) < 3:
+            elif element.tag.endswith('polygon') or element.tag.endswith('polyline'):
+                # SVG fills a polyline as if it were closed, so both map to
+                # the same polygon geometry.
+                points = self._parse_points(element.get('points', ''))
+                if points is None or len(points) < 3:
                     return None
                 return Polygon(points)
             elif element.tag.endswith('path'):
@@ -241,6 +314,18 @@ class SVGParser:
         except Exception as e:
             print(f"Could not convert element to polygon: {e}")
         return None
+
+    def _parse_points(self, points_str: str) -> Optional[List[Tuple[float, float]]]:
+        """Parse a polygon/polyline points attribute into coordinate pairs."""
+        values = [v for v in re.split(r'[\s,]+', points_str.strip()) if v]
+        if len(values) < 2 or len(values) % 2 != 0:
+            return None
+        try:
+            numbers = [float(v) for v in values]
+        except ValueError:
+            print(f"Warning: Malformed points attribute: {points_str!r}")
+            return None
+        return list(zip(numbers[0::2], numbers[1::2]))
 
     def _element_fill_rule(self, element) -> str:
         """Read the element's fill-rule (attribute or style); SVG defaults to nonzero."""

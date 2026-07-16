@@ -196,3 +196,85 @@ def test_transform_rotate_about_center():
     assert abs(miny - 10) < 1e-6
     assert abs(maxx - 10) < 1e-6
     assert abs(maxy - 20) < 1e-6
+
+
+def test_viewbox_defines_coordinate_canvas(tmp_path):
+    # width/height in mm, but shape coordinates live in the 1000x800 viewBox.
+    svg_content = """
+    <svg width="100mm" height="80mm" viewBox="0 0 1000 800" xmlns="http://www.w3.org/2000/svg">
+      <rect x="900" y="700" width="50" height="50" />
+    </svg>
+    """
+    file_path = tmp_path / "viewbox.svg"
+    file_path.write_text(svg_content)
+
+    parser = SVGParser()
+    shapes, width, height = parser.load_svg(str(file_path))
+    assert (width, height) == (1000, 800)
+    assert shapes[0].geometry.bounds == (900, 700, 950, 750)
+
+
+def test_polyline_is_filled_as_closed_polygon():
+    from lxml import etree
+    parser = SVGParser()
+    element = etree.fromstring('<polyline points="0,0 10,0 10,10 0,10" />')
+    polygon = parser.convert_to_polygon(element)
+    assert polygon.area == 100
+
+
+def test_defs_content_is_not_rendered_directly(tmp_path):
+    svg_content = """
+    <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <rect id="tpl" x="0" y="0" width="10" height="10" />
+      </defs>
+      <circle cx="50" cy="50" r="10" />
+    </svg>
+    """
+    file_path = tmp_path / "defs.svg"
+    file_path.write_text(svg_content)
+
+    parser = SVGParser()
+    shapes, _, _ = parser.load_svg(str(file_path))
+    assert len(shapes) == 1
+
+
+def test_use_instantiates_target_with_offset(tmp_path):
+    svg_content = """
+    <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg"
+         xmlns:xlink="http://www.w3.org/1999/xlink">
+      <defs>
+        <rect id="tpl" x="0" y="0" width="10" height="10" />
+      </defs>
+      <use xlink:href="#tpl" x="30" y="40" />
+      <use href="#tpl" x="60" y="0" transform="translate(0, 5)" />
+    </svg>
+    """
+    file_path = tmp_path / "use.svg"
+    file_path.write_text(svg_content)
+
+    parser = SVGParser()
+    shapes, _, _ = parser.load_svg(str(file_path))
+    assert len(shapes) == 2
+    bounds = sorted(shape.geometry.bounds for shape in shapes)
+    assert bounds[0] == (30, 40, 40, 50)
+    assert bounds[1] == (60, 5, 70, 15)
+
+
+def test_native_shape_captured_for_untransformed_elements(tmp_path):
+    svg_content = """
+    <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="20" cy="20" r="10" />
+      <circle cx="60" cy="60" r="10" transform="translate(5, 0)" />
+      <rect x="0" y="0" width="10" height="10" rx="3" />
+    </svg>
+    """
+    file_path = tmp_path / "native.svg"
+    file_path.write_text(svg_content)
+
+    parser = SVGParser()
+    shapes, _, _ = parser.load_svg(str(file_path))
+    assert shapes[0].native_shape == {'tag': 'circle', 'attrs': {'cx': '20', 'cy': '20', 'r': '10'}}
+    # Transformed elements and rounded rects must not carry native markup.
+    assert shapes[1].native_shape is None
+    assert shapes[2].native_shape is None
