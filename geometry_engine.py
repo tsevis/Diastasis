@@ -130,6 +130,22 @@ class GeometryEngine:
         keep = left < right
         return left[keep], right[keep]
 
+    def count_candidate_pairs(self, shapes: List[Shape]) -> int:
+        """
+        Count bounding-box candidate pairs (cheap upper bound on conflicts),
+        used for complexity estimation.
+        """
+        if len(shapes) < 2:
+            return 0
+        try:
+            geometries = self._sanitized_geometry_array(shapes)
+            tree = STRtree(geometries)
+            left, right = tree.query(geometries)  # bbox-only, no predicate
+            return int(np.count_nonzero(left < right))
+        except Exception as exc:
+            logger.warning("Vectorized candidate counting failed, falling back: %s", exc)
+            return sum(1 for _ in self._candidate_pairs(shapes))
+
     def _detect_overlaps_pairwise(self, shapes: List[Shape]) -> List[Tuple[int, int, float]]:
         """Per-pair fallback used when the vectorized path fails."""
         overlaps = []

@@ -274,17 +274,17 @@ def estimate_processing_complexity(svg_filepath):
         }
 
     geo_engine = GeometryEngine(use_spatial_index=True)
-    candidate_pairs = 0
-    for _ in geo_engine._candidate_pairs(shapes):
-        candidate_pairs += 1
+    candidate_pairs = geo_engine.count_candidate_pairs(shapes)
 
     all_pairs = (shape_count * (shape_count - 1)) // 2
     density = (candidate_pairs / all_pairs) if all_pairs else 0.0
 
-    # Heuristic processing time model, tuned for interactive guidance only.
-    eta_seconds = 0.25 + (shape_count * 0.002) + (candidate_pairs * 0.00004)
-    if shape_count > 1500:
-        eta_seconds *= 1.5
+    # Heuristic processing time model, tuned for interactive guidance only
+    # (recalibrated for the vectorized engine and minimum_layers solver).
+    eta_seconds = 0.15 + (shape_count * 0.0003) + (candidate_pairs * 0.00001)
+    if shape_count > 2000:
+        # The exact clique lower bound grows superlinearly on big graphs.
+        eta_seconds *= 1.3
 
     if shape_count > 2000 or candidate_pairs > 400000:
         label = "Very High"
