@@ -9,11 +9,13 @@ from tkinter import filedialog, messagebox, ttk
 from cairosvg import svg2png
 from PIL import Image, ImageTk
 
+import gui_theme
 from graph_solver import GraphSolver
 from main import (
     estimate_processing_complexity,
     run_diastasis,
     save_layers_to_files,
+    save_layers_to_separate_files,
     save_single_layer_file,
 )
 
@@ -37,6 +39,7 @@ class DiastasisGUI:
         self.num_layers = tk.IntVar(value=3)
         self.clip_visible_boundaries = tk.BooleanVar(value=False)
         self.performance_mode = tk.BooleanVar(value=False)
+        self.preserve_colors = tk.BooleanVar(value=True)
         self.quality_preset = tk.StringVar(value="Balanced")
         self.export_profile = tk.StringVar(value="Illustrator-safe")
         self.flat_algorithm = tk.StringVar(value="minimum_layers")
@@ -54,80 +57,16 @@ class DiastasisGUI:
         self.create_widgets()
 
     def _setup_theme(self):
-        system = platform.system().lower()
-        if system == "darwin":
-            self.style.theme_use("aqua")
-        elif system == "windows":
-            try:
-                self.style.theme_use("vista")
-            except tk.TclError:
-                self.style.theme_use("default")
-        else:
-            try:
-                self.style.theme_use("clam")
-            except tk.TclError:
-                self.style.theme_use("default")
+        gui_theme.setup_theme(self.style)
 
     def _theme_colors(self):
-        dark = self._theme_mode == "dark"
-        return {
-            "bg": "#1e1e1e" if dark else "#f5f5f5",
-            "fg": "#f2f2f2" if dark else "#1a1a1a",
-            "surface": "#2a2a2a" if dark else "#ffffff",
-            "active": "#3a3a3a" if dark else "#e8e8e8",
-            "canvas": "#808080" if dark else "white",
-            "text_bg": "#2a2a2a" if dark else "#ffffff",
-            "text_fg": "#f2f2f2" if dark else "#1a1a1a",
-        }
+        return gui_theme.theme_colors(self._theme_mode)
 
     def _apply_non_macos_theme(self):
-        if platform.system() == "Darwin":
-            return
-
-        colors = self._theme_colors()
-
-        self.root.configure(bg=colors["bg"])
-        self.style.configure(".", background=colors["bg"], foreground=colors["fg"])
-        self.style.configure("TFrame", background=colors["bg"])
-        self.style.configure("TLabel", background=colors["bg"], foreground=colors["fg"])
-        self.style.configure("TLabelframe", background=colors["bg"], foreground=colors["fg"])
-        self.style.configure("TLabelframe.Label", background=colors["bg"], foreground=colors["fg"])
-        self.style.configure("TCheckbutton", background=colors["bg"], foreground=colors["fg"])
-        self.style.configure("TButton", background=colors["surface"], foreground=colors["fg"])
-        self.style.map("TButton", background=[("active", colors["active"])])
-        self.style.configure("TNotebook", background=colors["bg"], borderwidth=0)
-        self.style.configure("TNotebook.Tab", background=colors["surface"], foreground=colors["fg"])
-        self.style.map(
-            "TNotebook.Tab",
-            background=[("selected", colors["active"])],
-            foreground=[("selected", colors["fg"])],
-        )
-
-        self.preview_canvas.configure(bg=colors["canvas"])
-        self.results_text.configure(bg=colors["text_bg"], fg=colors["text_fg"], insertbackground=colors["text_fg"])
+        gui_theme.apply_non_macos_theme(self)
 
     def toggle_appearance(self):
-        if platform.system() == "Darwin":
-            try:
-                if self._appearance in ("auto", "aqua"):
-                    self.root.tk.call("::tk::unsupported::MacWindowStyle", "appearance", ".", "darkaqua")
-                    self._appearance = "darkaqua"
-                    self._theme_mode = "dark"
-                else:
-                    self.root.tk.call("::tk::unsupported::MacWindowStyle", "appearance", ".", "aqua")
-                    self._appearance = "aqua"
-                    self._theme_mode = "light"
-            except tk.TclError:
-                self._theme_mode = "dark" if self._theme_mode == "light" else "light"
-        else:
-            self._theme_mode = "dark" if self._theme_mode == "light" else "light"
-
-        self.appearance_btn.config(text="Light Mode" if self._theme_mode == "dark" else "Dark Mode")
-        self._apply_non_macos_theme()
-        # On macOS, ttk theme colors are mostly native-managed, so explicitly set
-        # the preview canvas background to reflect dark/light mode.
-        if platform.system() == "Darwin":
-            self.preview_canvas.configure(bg=self._theme_colors()["canvas"])
+        gui_theme.toggle_appearance(self)
 
     def create_widgets(self):
         main_frame = ttk.Frame(self.root)
@@ -206,6 +145,12 @@ class DiastasisGUI:
             variable=self.clip_visible_boundaries,
         )
         self.clip_check.pack(anchor=tk.W)
+        self.preserve_colors_check = ttk.Checkbutton(
+            clip_frame,
+            text="Preserve Original Colors On Export",
+            variable=self.preserve_colors,
+        )
+        self.preserve_colors_check.pack(anchor=tk.W)
 
         perf_frame = ttk.Frame(left_frame)
         perf_frame.pack(fill=tk.X, pady=(0, 8))
@@ -255,6 +200,13 @@ class DiastasisGUI:
             state="disabled",
         )
         self.save_single_button.pack(anchor=tk.CENTER, pady=(6, 0))
+        self.save_separate_button = ttk.Button(
+            save_frame,
+            text="Save Layers As Separate Files...",
+            command=self.save_layers_separately,
+            state="disabled",
+        )
+        self.save_separate_button.pack(anchor=tk.CENTER, pady=(6, 0))
 
         self.preview_canvas = tk.Canvas(right_frame, bg="white")
         self.preview_canvas.pack(fill=tk.BOTH, expand=True)
@@ -400,12 +352,10 @@ class DiastasisGUI:
         self.results_text.delete(1.0, tk.END)
         if mode_result is None:
             self.results_text.insert(tk.END, f"Mode: {'Flat Complexity' if mode == 'flat' else 'Overlaid Complexity'}\n")
-            self.save_button.config(state="disabled")
-            self.save_single_button.config(state="disabled")
+            self._set_save_buttons_state("disabled")
         else:
             self.results_text.insert(tk.END, mode_result["summary"])
-            self.save_button.config(state="normal")
-            self.save_single_button.config(state="normal")
+            self._set_save_buttons_state("normal")
 
     def apply_quality_preset(self):
         preset = self.quality_preset.get()
@@ -519,8 +469,7 @@ class DiastasisGUI:
 
         self.process_button.config(state="disabled")
         self.batch_button.config(state="disabled")
-        self.save_button.config(state="disabled")
-        self.save_single_button.config(state="disabled")
+        self._set_save_buttons_state("disabled")
         self.progress["value"] = 0
         self.progress["maximum"] = 100
         self.results_text.delete(1.0, tk.END)
@@ -598,11 +547,9 @@ class DiastasisGUI:
         if current_mode == mode:
             self.results_text.delete(1.0, tk.END)
             self.results_text.insert(tk.END, summary)
-            self.save_button.config(state="normal")
-            self.save_single_button.config(state="normal")
+            self._set_save_buttons_state("normal")
         else:
-            self.save_button.config(state="disabled")
-            self.save_single_button.config(state="disabled")
+            self._set_save_buttons_state("disabled")
 
     def processing_error(self, error_msg):
         self.progress["value"] = 0
@@ -611,8 +558,7 @@ class DiastasisGUI:
 
         self.results_text.delete(1.0, tk.END)
         self.results_text.insert(tk.END, f"Error: {error_msg}")
-        self.save_button.config(state="disabled")
-        self.save_single_button.config(state="disabled")
+        self._set_save_buttons_state("disabled")
 
         messagebox.showerror("Processing Error", error_msg)
 
@@ -664,7 +610,7 @@ class DiastasisGUI:
                     base_filename,
                     svg_width,
                     svg_height,
-                    preserve_original_colors=self.clip_visible_boundaries.get(),
+                    preserve_original_colors=self.preserve_colors.get(),
                     export_profile=self.export_profile.get(),
                 )
                 successes += 1
@@ -674,8 +620,7 @@ class DiastasisGUI:
         def finish_batch():
             self.process_button.config(state="normal")
             self.batch_button.config(state="normal")
-            self.save_button.config(state="disabled")
-            self.save_single_button.config(state="disabled")
+            self._set_save_buttons_state("disabled")
             self.results_text.insert(
                 tk.END,
                 f"\nBatch done. Success: {successes}, Failed: {len(failures)}\n",
@@ -752,13 +697,45 @@ class DiastasisGUI:
                 base_filename,
                 data["svg_width"],
                 data["svg_height"],
-                preserve_original_colors=self.clip_visible_boundaries.get(),
+                preserve_original_colors=self.preserve_colors.get(),
                 export_profile=self.export_profile.get(),
             )
 
             messagebox.showinfo("Success", f"Layered SVG saved successfully as:\n{output_filepath}")
         except Exception as exc:
             messagebox.showerror("Save Error", f"Error saving layers: {exc}")
+
+    def _set_save_buttons_state(self, state):
+        for button in (self.save_button, self.save_single_button, self.save_separate_button):
+            button.config(state=state)
+
+    def save_layers_separately(self):
+        mode = self.get_active_mode()
+        data = self.results_by_mode.get(mode)
+
+        if not data:
+            messagebox.showerror("Error", "No processed data for this mode. Please process first.")
+            return
+
+        output_dir = filedialog.askdirectory(title="Select Folder for Layer Files")
+        if not output_dir:
+            return
+
+        original_filename = os.path.splitext(os.path.basename(self.filepath))[0]
+        try:
+            written = save_layers_to_separate_files(
+                data["shapes"],
+                data["coloring"],
+                output_dir,
+                f"{original_filename}_{mode}",
+                data["svg_width"],
+                data["svg_height"],
+                preserve_original_colors=self.preserve_colors.get(),
+                export_profile=self.export_profile.get(),
+            )
+            messagebox.showinfo("Success", f"{len(written)} layer files saved to:\n{output_dir}")
+        except Exception as exc:
+            messagebox.showerror("Save Error", f"Error saving layer files: {exc}")
 
     def save_single_layer(self):
         mode = self.get_active_mode()
