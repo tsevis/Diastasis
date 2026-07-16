@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-07-17
+
+### Added
+- GUI preview toggle (Original/Separated): the separated result renders in
+  the preview canvas as soon as processing completes.
+- Flat-mode sliver cleanup (`--drop-slivers RATIO` / `min_fragment_ratio`):
+  drops sub-visible fragments left over from flattening, reported in the
+  summary.
+- `build_layered_svg_string` public API for in-memory layered documents.
+- Pixel-level fidelity regression test (clipped export vs input render).
+
+### Changed
+- Layer colors beyond the base palette are deterministic (golden-angle hue
+  walk) instead of random: re-runs produce identical output files.
+- GUI option-gathering consolidated; interactive and batch runs are
+  guaranteed to use identical pipeline options.
+
 ## [0.3.0] - 2026-07-17
 
 ### Added

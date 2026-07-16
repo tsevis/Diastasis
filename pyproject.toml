@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "diastasis"
-version = "0.3.0"
+version = "0.4.0"
 description = "Separate complex SVG artwork into production-ready layers via graph coloring"
 readme = "README.md"
 license = { file = "LICENSE" }

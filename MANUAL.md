@@ -153,3 +153,15 @@ Use these metrics to compare settings and reduce noisy outputs.
 4. For final production output:
    - use `Accurate` preset
    - choose `Illustrator-safe` or `Print` profile.
+
+## Preview Modes
+
+The preview pane shows either the `Original` artwork or the `Separated`
+result (chosen with the Preview selector). After processing, the preview
+switches to `Separated` automatically and follows the active mode tab.
+
+## Sliver Cleanup (CLI)
+
+Flat-mode flattening can leave sub-visible fragments where shapes almost
+coincide. `--drop-slivers 0.0001` removes fragments smaller than 0.01% of
+the canvas area before layering; the summary reports how many were removed.
