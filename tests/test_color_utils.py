@@ -31,3 +31,8 @@ def test_color_distance_and_hex_roundtrip():
     assert color_distance((255, 0, 0), (0, 0, 255)) == pytest.approx(360.62, abs=0.1)
     assert rgb_to_hex((170, 187, 204)) == "#AABBCC"
     assert parse_color(rgb_to_hex((12, 34, 56))) == (12, 34, 56)
+
+
+def test_parse_color_hex_with_alpha_drops_alpha():
+    assert parse_color("#ff000080") == (255, 0, 0)   # #rrggbbaa
+    assert parse_color("#f00c") == (255, 0, 0)       # #rgba

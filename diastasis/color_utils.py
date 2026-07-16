@@ -95,9 +95,11 @@ def parse_color(value: Optional[str]) -> Optional[RGB]:
 
     if text.startswith('#'):
         hex_digits = text[1:]
-        if len(hex_digits) == 3 and all(c in '0123456789abcdef' for c in hex_digits):
-            return tuple(int(c * 2, 16) for c in hex_digits)  # type: ignore[return-value]
-        if len(hex_digits) == 6 and all(c in '0123456789abcdef' for c in hex_digits):
+        if not all(c in '0123456789abcdef' for c in hex_digits):
+            return None
+        if len(hex_digits) in (3, 4):  # #rgb / #rgba (alpha dropped)
+            return tuple(int(c * 2, 16) for c in hex_digits[:3])  # type: ignore[return-value]
+        if len(hex_digits) in (6, 8):  # #rrggbb / #rrggbbaa (alpha dropped)
             return (
                 int(hex_digits[0:2], 16),
                 int(hex_digits[2:4], 16),

@@ -468,3 +468,27 @@ def test_run_diastasis_color_mode_unify_repaints_shapes(tmp_path):
     fills = {shape.metadata["fill"] for shape in shapes}
     assert len(fills) == 1
     assert "Plate colors unified" in summary
+
+
+def test_run_diastasis_color_mode_with_clipping_preserves_fills(tmp_path):
+    # A blue square partly covered by a red one on top; clipping trims the
+    # blue to its visible area but must keep both plates' inks.
+    svg_content = """
+    <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="60" height="60" fill="#0000ff" />
+      <rect x="30" y="0" width="60" height="60" fill="#ff0000" />
+    </svg>
+    """
+    svg_file = tmp_path / "clip_color.svg"
+    svg_file.write_text(svg_content)
+
+    shapes, grouped, summary, _, _ = run_diastasis(
+        str(svg_file), mode="color", clip_visible_boundaries=True
+    )
+    assert len(grouped) == 2
+    assert "Visible boundary clipping: Enabled" in summary
+    assert "#0000FF" in summary and "#FF0000" in summary
+    # Clipped shapes are area-disjoint yet retain their original fills.
+    for i in range(len(shapes)):
+        for j in range(i + 1, len(shapes)):
+            assert shapes[i].geometry.intersection(shapes[j].geometry).area == 0

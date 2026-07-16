@@ -1,4 +1,5 @@
 from collections import defaultdict
+from typing import Dict, List, Optional, Tuple
 import networkx as nx
 from rtree import index
 from shapely.ops import unary_union
@@ -347,7 +348,9 @@ def drop_sliver_fragments(shapes, canvas_area, min_area_ratio):
     return kept, len(shapes) - len(kept)
 
 
-def separate_by_color(shapes, tolerance=0.0):
+def separate_by_color(
+    shapes: List[Shape], tolerance: float = 0.0
+) -> Tuple[Dict[int, int], Dict[int, Optional[str]], int]:
     """
     Group shapes into plates by fill color. With tolerance > 0, colors within
     that RGB distance of an existing plate's seed color are merged into it
@@ -385,10 +388,14 @@ def separate_by_color(shapes, tolerance=0.0):
         cluster["count"] += 1
         coloring[idx] = assigned
 
-    representatives = {}
+    representatives: Dict[int, Optional[str]] = {}
     for cid, cluster in enumerate(clusters):
         n = cluster["count"]
-        avg = tuple(int(round(cluster["sum"][channel] / n)) for channel in range(3))
+        avg = (
+            int(round(cluster["sum"][0] / n)),
+            int(round(cluster["sum"][1] / n)),
+            int(round(cluster["sum"][2] / n)),
+        )
         representatives[cid] = rgb_to_hex(avg)
 
     if unresolved_ids:
@@ -400,7 +407,11 @@ def separate_by_color(shapes, tolerance=0.0):
     return coloring, representatives, len(unresolved_ids)
 
 
-def apply_plate_colors(shapes, coloring, representatives):
+def apply_plate_colors(
+    shapes: List[Shape],
+    coloring: Dict[int, int],
+    representatives: Dict[int, Optional[str]],
+) -> List[Shape]:
     """
     Return copies of shapes whose fill is set to their plate's representative
     ink, producing true single-ink plates. Shapes on the no-fill plate keep
@@ -408,7 +419,8 @@ def apply_plate_colors(shapes, coloring, representatives):
     """
     recolored = []
     for idx, shape in enumerate(shapes):
-        representative = representatives.get(coloring.get(idx))
+        plate_id = coloring.get(idx)
+        representative = representatives.get(plate_id) if plate_id is not None else None
         metadata = dict(shape.metadata or {})
         if representative is not None:
             # metadata['fill'] takes precedence over style in get_shape_fill.
@@ -425,9 +437,14 @@ def apply_plate_colors(shapes, coloring, representatives):
     return recolored
 
 
-def _layer_breakdown_summary(shapes, coloring, canvas_area, row_label="Color"):
+def _layer_breakdown_summary(
+    shapes: List[Shape],
+    coloring: Dict[int, int],
+    canvas_area: float,
+    row_label: str = "Color",
+) -> str:
     """Tiny-fragment count and per-layer area share, shared by all modes."""
-    layer_counts = defaultdict(int)
+    layer_counts: Dict[int, int] = defaultdict(int)
     for color_id in coloring.values():
         layer_counts[color_id] += 1
 
