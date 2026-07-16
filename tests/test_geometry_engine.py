@@ -149,3 +149,9 @@ def test_vectorized_overlaps_handle_invalid_geometry():
     ]
     overlaps = engine.detect_overlaps(shapes)
     assert isinstance(overlaps, list)
+
+
+def test_detect_contacts_rejects_unknown_touch_policy(simple_shapes):
+    engine = GeometryEngine(use_spatial_index=True)
+    with pytest.raises(ValueError):
+        engine.detect_contacts(simple_shapes, touch_policy="bogus")

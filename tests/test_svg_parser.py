@@ -278,3 +278,18 @@ def test_native_shape_captured_for_untransformed_elements(tmp_path):
     # Transformed elements and rounded rects must not carry native markup.
     assert shapes[1].native_shape is None
     assert shapes[2].native_shape is None
+
+
+def test_native_shape_skipped_for_unit_suffixed_attributes():
+    from lxml import etree
+    parser = SVGParser()
+    element = etree.fromstring('<rect x="0" y="0" width="10mm" height="10mm" />')
+    assert parser._native_shape(element, 'rect') is None
+
+
+def test_native_shape_kept_for_zero_corner_radius():
+    from lxml import etree
+    parser = SVGParser()
+    element = etree.fromstring('<rect x="0" y="0" width="10" height="10" rx="0" />')
+    native = parser._native_shape(element, 'rect')
+    assert native == {'tag': 'rect', 'attrs': {'x': '0', 'y': '0', 'width': '10', 'height': '10'}}

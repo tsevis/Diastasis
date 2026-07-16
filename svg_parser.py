@@ -110,14 +110,29 @@ class SVGParser:
             if shape is not None:
                 shapes.append(shape)
 
+        id_map = None
         for use in root.iter('{*}use'):
             if not self._is_rendered(use):
                 continue
-            shape = self._resolve_use(root, use, len(shapes))
+            if id_map is None:
+                id_map = self._build_id_map(root)
+            shape = self._resolve_use(id_map, use, len(shapes))
             if shape is not None:
                 shapes.append(shape)
 
         return shapes
+
+    @staticmethod
+    def _build_id_map(root) -> Dict[str, object]:
+        """Map id -> element once; first occurrence wins (getElementById semantics)."""
+        id_map = {}
+        for element in root.iter():
+            if not isinstance(element.tag, str):
+                continue
+            element_id = element.get('id')
+            if element_id and element_id not in id_map:
+                id_map[element_id] = element
+        return id_map
 
     def _element_to_shape(self, element, matrix: np.ndarray, shape_id: int) -> Optional[Shape]:
         """Convert one SVG element plus its effective transform into a Shape."""
@@ -147,15 +162,14 @@ class SVGParser:
             native_shape=native_shape,
         )
 
-    def _resolve_use(self, root, use, shape_id: int) -> Optional[Shape]:
+    def _resolve_use(self, id_map: Dict[str, object], use, shape_id: int) -> Optional[Shape]:
         """Instantiate a <use> reference to a basic shape element."""
         href = use.get('href') or use.get('{http://www.w3.org/1999/xlink}href')
         if not href or not href.startswith('#'):
             return None
-        targets = root.xpath('.//*[@id=$ref]', ref=href[1:])
-        if not targets:
+        target = id_map.get(href[1:])
+        if target is None:
             return None
-        target = targets[0]
         if self._localname(target) not in ('rect', 'circle', 'ellipse', 'polygon', 'polyline', 'path'):
             return None
 
@@ -177,6 +191,11 @@ class SVGParser:
             node = node.getparent()
         return True
 
+    # Plain unitless numbers and point lists: the only attribute values the
+    # analyzer interprets identically to an SVG renderer.
+    _PLAIN_NUMBER = re.compile(r'^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$')
+    _PLAIN_POINTS = re.compile(r'^[\s,0-9eE+.\-]+$')
+
     def _native_shape(self, element, localname: str) -> Optional[Dict]:
         """Capture original tag/attrs for lossless export of basic shapes."""
         attr_names = self.NATIVE_ATTRS.get(localname)
@@ -184,11 +203,29 @@ class SVGParser:
             return None
         # Rounded rects are analyzed as sharp boxes, so re-emitting the
         # original markup would not match the analyzed geometry.
-        if localname == 'rect' and (element.get('rx') or element.get('ry')):
+        if localname == 'rect' and self._rect_is_rounded(element):
             return None
         attrs = {name: element.get(name) for name in attr_names if element.get(name) is not None}
+        # Unit-suffixed values (10mm, 50%) are analyzed as bare numbers, so
+        # re-emitting them verbatim would not match the analyzed geometry.
+        for name, value in attrs.items():
+            pattern = self._PLAIN_POINTS if name == 'points' else self._PLAIN_NUMBER
+            if not pattern.match(value.strip()):
+                return None
         tag = 'polygon' if localname == 'polyline' else localname
         return {'tag': tag, 'attrs': attrs}
+
+    def _rect_is_rounded(self, element) -> bool:
+        for name in ('rx', 'ry'):
+            value = element.get(name)
+            if value is None:
+                continue
+            try:
+                if float(value) != 0:
+                    return True
+            except ValueError:
+                return True
+        return False
 
     @staticmethod
     def _localname(element) -> str:

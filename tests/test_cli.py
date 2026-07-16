@@ -67,3 +67,22 @@ def test_cli_force_k_requires_num_layers(svg_file):
 
 def test_cli_missing_file_errors(tmp_path):
     assert main([str(tmp_path / "nope.svg")]) == 2
+
+
+def test_cli_estimate_missing_file_returns_error_code():
+    assert main(["/no/such/file.svg", "--estimate"]) == 2
+
+
+def test_cli_batch_continues_past_malformed_file(tmp_path, capsys):
+    indir = tmp_path / "in"
+    indir.mkdir()
+    (indir / "good.svg").write_text(SIMPLE_SVG)
+    (indir / "bad.svg").write_text("<svg not well formed")
+    outdir = str(tmp_path / "out")
+
+    exit_code = main(["--batch", str(indir), "-o", outdir, "-q"])
+
+    # The bad file fails, the good file still processes, exit code reports failure.
+    assert exit_code == 1
+    assert os.path.exists(os.path.join(outdir, "good_layered.svg"))
+    assert "bad.svg" in capsys.readouterr().err

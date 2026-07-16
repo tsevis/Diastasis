@@ -85,3 +85,37 @@ def test_save_layers_to_separate_files_web_profile_omits_crop_marks(tmp_path):
     )
     content = open(written[0]).read()
     assert 'id="Crop_Marks"' not in content
+
+
+def test_export_escapes_malicious_attribute_values(tmp_path):
+    # An entity-encoded fill attribute must not inject markup into the output.
+    svg_content = (
+        '<svg width="40" height="40" xmlns="http://www.w3.org/2000/svg">'
+        '<rect x="0" y="0" width="20" height="20" '
+        'fill="red&quot;/&gt;&lt;script&gt;alert(1)&lt;/script&gt;&lt;rect fill=&quot;blue" />'
+        '<rect x="10" y="0" width="20" height="20" fill="#00ff00" />'
+        "</svg>"
+    )
+    svg_file = tmp_path / "evil.svg"
+    svg_file.write_text(svg_content)
+
+    shapes, grouped, _, w, h = run_diastasis(str(svg_file), mode="overlaid")
+    save_layers_to_files(shapes, grouped, str(tmp_path), "evil", w, h, preserve_original_colors=True)
+
+    content = (tmp_path / "evil_layered.svg").read_text()
+    assert "<script" not in content
+
+    # The output must still be well-formed XML.
+    from lxml import etree
+    etree.fromstring(content.encode())
+
+
+def test_shape_element_markup_escapes_native_attrs_and_fill():
+    shape = Shape(
+        id=0,
+        geometry=box(0, 0, 10, 10),
+        metadata={},
+        native_shape={"tag": "circle", "attrs": {"cx": '5"/><evil', "cy": "5", "r": "5"}},
+    )
+    markup = shape_element_markup(shape, fill='red"><evil')
+    assert "<evil" not in markup

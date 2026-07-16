@@ -1,3 +1,4 @@
+import logging
 import multiprocessing
 from itertools import combinations
 from typing import Iterable, List, Tuple
@@ -10,6 +11,10 @@ from shapely.strtree import STRtree
 from shapely.validation import make_valid
 
 from svg_parser import Shape
+
+logger = logging.getLogger(__name__)
+
+VALID_TOUCH_POLICIES = ("any_touch", "edge_or_overlap")
 
 
 def check_and_calculate_overlap_worker(shapes_pair: Tuple[int, int, Polygon, Polygon]) -> Tuple[int, int, float]:
@@ -44,7 +49,11 @@ class GeometryEngine:
             return []
         try:
             return self._detect_overlaps_vectorized(shapes)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Vectorized overlap detection failed, falling back to pairwise: %s",
+                exc, exc_info=True,
+            )
             return self._detect_overlaps_pairwise(shapes)
 
     def detect_overlap_pairs(self, shapes: List[Shape]) -> List[Tuple[int, int]]:
@@ -60,11 +69,19 @@ class GeometryEngine:
             - "edge_or_overlap": only shared edge/segment or overlap are conflicts;
               corner-only (point) touches are allowed.
         """
+        if touch_policy not in VALID_TOUCH_POLICIES:
+            raise ValueError(
+                f"Unknown touch_policy: {touch_policy!r}. Valid options: {VALID_TOUCH_POLICIES}"
+            )
         if len(shapes) < 2:
             return []
         try:
             return self._detect_contacts_vectorized(shapes, touch_policy)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Vectorized contact detection failed, falling back to pairwise: %s",
+                exc, exc_info=True,
+            )
             return self._detect_contacts_pairwise(shapes, touch_policy)
 
     def _detect_overlaps_vectorized(self, shapes: List[Shape]) -> List[Tuple[int, int, float]]:

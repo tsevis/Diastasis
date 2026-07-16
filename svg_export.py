@@ -6,11 +6,17 @@ or a generated path, in that order.
 import os
 import random
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
+from xml.sax.saxutils import quoteattr
 
 from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
 
 from svg_parser import Shape
+
+
+def _attr(value) -> str:
+    """Quote and escape a value for safe use as an XML attribute."""
+    return quoteattr(str(value))
 
 BASE_COLOR_MAP = {
     0: "#FF0000", 1: "#00FF00", 2: "#0000FF", 3: "#FFFF00",
@@ -33,7 +39,7 @@ def resolve_export_profile(export_profile: Optional[str]) -> Tuple[str, int, boo
 
 
 # Helper function to convert Shapely Polygon to SVG path 'd' attribute
-def polygon_to_svg_path_d(polygon, precision=3):
+def polygon_to_svg_path_d(polygon, precision: int = 3) -> str:
     if not polygon:
         return ""
 
@@ -74,7 +80,7 @@ def polygon_to_svg_path_d(polygon, precision=3):
 
 
 # Helper function to generate SVG crop marks
-def generate_crop_marks_svg(width, height, mark_length=10):
+def generate_crop_marks_svg(width: float, height: float, mark_length: float = 10) -> str:
     marks_svg = []
     # Top-left corner
     marks_svg.append(f'<path d="M 0 {mark_length} L 0 0 L {mark_length} 0" stroke="black" stroke-width="0.5" fill="none"/>')
@@ -87,7 +93,7 @@ def generate_crop_marks_svg(width, height, mark_length=10):
     return "\n".join(marks_svg)
 
 
-def get_shape_fill(shape, fallback_color="#CCCCCC"):
+def get_shape_fill(shape: Shape, fallback_color: str = "#CCCCCC") -> str:
     """
     Return original shape fill color from metadata/style when available.
     """
@@ -111,23 +117,24 @@ def shape_element_markup(shape: Shape, fill: str, path_precision: int = 3) -> Op
     """
     Render one shape as SVG markup with the best available fidelity:
     original path data, original native element, or a generated path.
+    All values sourced from the input SVG are escaped before re-emission.
     """
     if shape.d_attribute:
-        return f'<path d="{shape.d_attribute}" fill="{fill}" stroke="none"/>'
+        return f'<path d={_attr(shape.d_attribute)} fill={_attr(fill)} stroke="none"/>'
 
     native = getattr(shape, "native_shape", None)
     if native and native.get("attrs"):
-        attrs = " ".join(f'{name}="{value}"' for name, value in native["attrs"].items())
-        return f'<{native["tag"]} {attrs} fill="{fill}" stroke="none"/>'
+        attrs = " ".join(f'{name}={_attr(value)}' for name, value in native["attrs"].items())
+        return f'<{native["tag"]} {attrs} fill={_attr(fill)} stroke="none"/>'
 
     path_d = polygon_to_svg_path_d(shape.geometry, precision=path_precision)
     if not path_d:
         return None
     # Generated paths encode holes as extra subpaths; even-odd makes them render.
-    return f'<path d="{path_d}" fill="{fill}" fill-rule="evenodd" stroke="none"/>'
+    return f'<path d="{path_d}" fill={_attr(fill)} fill-rule="evenodd" stroke="none"/>'
 
 
-def build_layer_color_map(color_ids) -> Dict[int, str]:
+def build_layer_color_map(color_ids: Iterable[int]) -> Dict[int, str]:
     """Stable colors for the first twelve layers, random beyond that."""
     color_map = dict(BASE_COLOR_MAP)
     for color_id in color_ids:
@@ -165,15 +172,15 @@ def _layer_group_markup(
 
 
 def save_layers_to_files(
-    shapes,
-    coloring,
-    output_dir,
-    original_filename,
-    svg_width,
-    svg_height,
-    preserve_original_colors=False,
-    export_profile="Illustrator-safe",
-):
+    shapes: List[Shape],
+    coloring: Dict[int, List[int]],
+    output_dir: str,
+    original_filename: str,
+    svg_width: float,
+    svg_height: float,
+    preserve_original_colors: bool = False,
+    export_profile: str = "Illustrator-safe",
+) -> str:
     """Write all layers into one SVG, one <g> group per layer."""
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -196,7 +203,7 @@ def save_layers_to_files(
         body += f'  <g id="Crop_Marks">\n{generate_crop_marks_svg(svg_width, svg_height)}\n  </g>\n'
 
     output_filepath = os.path.join(output_dir, f"{original_filename}_layered.svg")
-    with open(output_filepath, "w") as f:
+    with open(output_filepath, "w", encoding="utf-8") as f:
         f.write(_svg_document(svg_width, svg_height, body, profile))
 
     print(f"Layered SVG saved to: {output_filepath}")
@@ -204,14 +211,14 @@ def save_layers_to_files(
 
 
 def save_layers_to_separate_files(
-    shapes,
-    coloring,
-    output_dir,
-    original_filename,
-    svg_width,
-    svg_height,
-    preserve_original_colors=False,
-    export_profile="Illustrator-safe",
+    shapes: List[Shape],
+    coloring: Dict[int, List[int]],
+    output_dir: str,
+    original_filename: str,
+    svg_width: float,
+    svg_height: float,
+    preserve_original_colors: bool = False,
+    export_profile: str = "Illustrator-safe",
 ) -> List[str]:
     """
     Write one SVG file per layer, all on the same canvas with the same crop
@@ -240,7 +247,7 @@ def save_layers_to_separate_files(
 
         filepath = os.path.join(output_dir, f"{original_filename}_layer_{position}of{total}.svg")
         extra = f' data-layer="{position}" data-layer-total="{total}"'
-        with open(filepath, "w") as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             f.write(_svg_document(svg_width, svg_height, body, profile, extra_attrs=extra))
         written.append(filepath)
 
@@ -248,7 +255,7 @@ def save_layers_to_separate_files(
     return written
 
 
-def save_single_layer_file(shapes, output_filepath, svg_width, svg_height):
+def save_single_layer_file(shapes: List[Shape], output_filepath: str, svg_width: float, svg_height: float) -> str:
     """
     Save all processed shapes into one single SVG layer.
     Useful for exporting clipped-visible results as one flat layer.
@@ -267,7 +274,7 @@ def save_single_layer_file(shapes, output_filepath, svg_width, svg_height):
 
     lines.extend(["  </g>", "</svg>", ""])
 
-    with open(output_filepath, "w") as f:
+    with open(output_filepath, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
     print(f"Single layer SVG saved to: {output_filepath}")

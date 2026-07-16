@@ -71,37 +71,43 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def _process_file(svg_path: str, args: argparse.Namespace) -> bool:
-    """Process one SVG file. Returns True on success."""
+    """Process one SVG file. Returns True on success, never raises."""
     name = os.path.splitext(os.path.basename(svg_path))[0]
 
-    result = run_diastasis(
-        svg_path,
-        algorithm=args.algorithm,
-        num_layers=args.num_layers,
-        mode=args.mode,
-        flat_algorithm=args.algorithm,
-        flat_num_layers=args.num_layers,
-        flat_touch_policy=TOUCH_POLICIES[args.touch_policy],
-        flat_priority_order=args.priority,
-        clip_visible_boundaries=args.clip,
-        performance_mode=args.performance,
-    )
-    if result[0] is None:
-        print(f"error: {svg_path}: {result[2]}", file=sys.stderr)
-        return False
+    try:
+        result = run_diastasis(
+            svg_path,
+            algorithm=args.algorithm,
+            num_layers=args.num_layers,
+            mode=args.mode,
+            flat_algorithm=args.algorithm,
+            flat_num_layers=args.num_layers,
+            flat_touch_policy=TOUCH_POLICIES[args.touch_policy],
+            flat_priority_order=args.priority,
+            clip_visible_boundaries=args.clip,
+            performance_mode=args.performance,
+        )
+        if result[0] is None:
+            print(f"error: {svg_path}: {result[2]}", file=sys.stderr)
+            return False
 
-    shapes, grouped_coloring, summary, width, height = result
-    save_layers_to_files(
-        shapes, grouped_coloring, args.output, name, width, height,
-        preserve_original_colors=not args.recolor,
-        export_profile=args.profile,
-    )
-    if args.separate_files:
-        save_layers_to_separate_files(
+        shapes, grouped_coloring, summary, width, height = result
+        save_layers_to_files(
             shapes, grouped_coloring, args.output, name, width, height,
             preserve_original_colors=not args.recolor,
             export_profile=args.profile,
         )
+        if args.separate_files:
+            save_layers_to_separate_files(
+                shapes, grouped_coloring, args.output, name, width, height,
+                preserve_original_colors=not args.recolor,
+                export_profile=args.profile,
+            )
+    except Exception as exc:
+        # A bad file must not abort a batch run or leak a traceback.
+        print(f"error: {svg_path}: {exc}", file=sys.stderr)
+        return False
+
     if not args.quiet:
         print(f"--- {os.path.basename(svg_path)} ---")
         print(summary)
@@ -125,28 +131,34 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.algorithm == "force_k" and (args.num_layers is None or args.num_layers <= 0):
         print("error: --num-layers is required (and must be positive) with force_k", file=sys.stderr)
         return 2
+    if args.input and not os.path.isfile(args.input):
+        print(f"error: input file not found: {args.input}", file=sys.stderr)
+        return 2
+    if args.batch and not os.path.isdir(args.batch):
+        print(f"error: batch folder not found: {args.batch}", file=sys.stderr)
+        return 2
 
     if args.estimate:
         targets = [args.input] if args.input else _batch_inputs(args.batch)
+        failures = 0
         for svg_path in targets:
-            estimate = estimate_processing_complexity(svg_path)
+            try:
+                estimate = estimate_processing_complexity(svg_path)
+            except Exception as exc:
+                print(f"error: {svg_path}: {exc}", file=sys.stderr)
+                failures += 1
+                continue
             print(
                 f"{os.path.basename(svg_path)}: {estimate['shape_count']} shapes, "
                 f"{estimate['candidate_pairs']} candidate pairs, "
                 f"complexity {estimate['complexity_label']}, "
                 f"~{estimate['eta_seconds']:.1f}s"
             )
-        return 0
+        return 0 if failures == 0 else 1
 
     if args.input:
-        if not os.path.isfile(args.input):
-            print(f"error: input file not found: {args.input}", file=sys.stderr)
-            return 2
         return 0 if _process_file(args.input, args) else 1
 
-    if not os.path.isdir(args.batch):
-        print(f"error: batch folder not found: {args.batch}", file=sys.stderr)
-        return 2
     targets = _batch_inputs(args.batch)
     if not targets:
         print(f"error: no .svg files in {args.batch}", file=sys.stderr)
