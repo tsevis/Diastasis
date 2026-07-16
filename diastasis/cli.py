@@ -32,8 +32,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--batch", metavar="FOLDER", help="Process every .svg file in FOLDER.")
     parser.add_argument("-o", "--output", default="output", help="Output directory (default: output).")
     parser.add_argument(
-        "--mode", choices=("overlaid", "flat"), default="overlaid",
-        help="overlaid: overlap-aware layering. flat: strict area-exclusive separation.",
+        "--mode", choices=("overlaid", "flat", "color"), default="overlaid",
+        help="overlaid: overlap-aware layering. flat: strict area-exclusive separation. "
+             "color: one plate per ink color (screen-print / vinyl style).",
     )
     parser.add_argument(
         "--algorithm", choices=GraphSolver.AVAILABLE_ALGORITHMS, default="minimum_layers",
@@ -60,6 +61,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--drop-slivers", type=float, default=0.0, metavar="RATIO",
         help="flat mode: drop fragments smaller than RATIO of the canvas area (e.g. 0.0001).",
+    )
+    parser.add_argument(
+        "--color-tolerance", type=float, default=0.0, metavar="DIST",
+        help="color mode: merge fills within DIST RGB distance onto one plate (0 = exact).",
+    )
+    parser.add_argument(
+        "--unify-plate-colors", action="store_true",
+        help="color mode: repaint every shape with its plate's representative ink.",
     )
     parser.add_argument(
         "--profile", choices=sorted(EXPORT_PROFILES), default="Illustrator-safe",
@@ -96,6 +105,8 @@ def _process_file(svg_path: str, args: argparse.Namespace) -> bool:
             performance_mode=args.performance,
             include_strokes=args.include_strokes,
             min_fragment_ratio=args.drop_slivers,
+            color_tolerance=args.color_tolerance,
+            unify_plate_colors=args.unify_plate_colors,
         )
         if result[0] is None:
             print(f"error: {svg_path}: {result[2]}", file=sys.stderr)

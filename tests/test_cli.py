@@ -86,3 +86,16 @@ def test_cli_batch_continues_past_malformed_file(tmp_path, capsys):
     assert exit_code == 1
     assert os.path.exists(os.path.join(outdir, "good_layered.svg"))
     assert "bad.svg" in capsys.readouterr().err
+
+
+def test_cli_color_mode(tmp_path):
+    svg = tmp_path / "c.svg"
+    svg.write_text(
+        '<svg width="40" height="40" xmlns="http://www.w3.org/2000/svg">'
+        '<rect x="0" y="0" width="20" height="20" fill="#ff0000"/>'
+        '<rect x="20" y="0" width="20" height="20" fill="#0000ff"/>'
+        "</svg>"
+    )
+    outdir = str(tmp_path / "out")
+    assert main([str(svg), "-o", outdir, "--mode", "color", "-q"]) == 0
+    assert os.path.exists(os.path.join(outdir, "c_layered.svg"))

@@ -408,3 +408,63 @@ def test_run_diastasis_flat_sliver_cleanup(tmp_path):
     assert len(shapes_kept) == 2
     assert len(shapes_clean) == 1
     assert "Sliver fragments dropped: 1" in summary
+
+
+def test_separate_by_color_groups_and_merges():
+    from diastasis.main import separate_by_color
+    shapes = [
+        Shape(id=0, geometry=box(0, 0, 10, 10), metadata={"fill": "#ff0000"}),
+        Shape(id=1, geometry=box(20, 0, 30, 10), metadata={"fill": "red"}),       # == shape 0
+        Shape(id=2, geometry=box(40, 0, 50, 10), metadata={"fill": "#fa0000"}),   # near red
+        Shape(id=3, geometry=box(60, 0, 70, 10), metadata={"fill": "#0000ff"}),
+        Shape(id=4, geometry=box(80, 0, 90, 10), metadata={"fill": "none"}),
+    ]
+
+    coloring, reps, unresolved = separate_by_color(shapes, tolerance=0.0)
+    assert coloring[0] == coloring[1]           # identical reds share a plate
+    assert coloring[2] != coloring[0]           # near-red is its own plate at tol 0
+    assert coloring[3] not in (coloring[0], coloring[2])
+    assert unresolved == 1
+    assert reps[coloring[4]] is None            # no-fill plate has no ink
+
+    merged, _, _ = separate_by_color(shapes, tolerance=10.0)
+    assert merged[2] == merged[0]               # near-red now merges into the red plate
+
+
+def test_run_diastasis_color_mode(tmp_path):
+    svg_content = """
+    <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="40" height="40" fill="#ff0000" />
+      <rect x="50" y="0" width="40" height="40" fill="#ff0000" />
+      <circle cx="20" cy="70" r="15" fill="#0000ff" />
+    </svg>
+    """
+    svg_file = tmp_path / "color.svg"
+    svg_file.write_text(svg_content)
+
+    shapes, grouped, summary, w, h = run_diastasis(str(svg_file), mode="color")
+    # Two reds share one plate, blue is another -> 2 plates for 3 shapes.
+    assert len(grouped) == 2
+    assert "Color Separation" in summary
+    assert "Plate inks:" in summary
+    assert "#FF0000" in summary and "#0000FF" in summary
+
+
+def test_run_diastasis_color_mode_unify_repaints_shapes(tmp_path):
+    svg_content = """
+    <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="40" height="40" fill="#fe0000" />
+      <rect x="50" y="0" width="40" height="40" fill="#ff0202" />
+    </svg>
+    """
+    svg_file = tmp_path / "unify.svg"
+    svg_file.write_text(svg_content)
+
+    shapes, grouped, summary, _, _ = run_diastasis(
+        str(svg_file), mode="color", color_tolerance=10.0, unify_plate_colors=True
+    )
+    assert len(grouped) == 1
+    # Both near-reds now carry the identical representative ink.
+    fills = {shape.metadata["fill"] for shape in shapes}
+    assert len(fills) == 1
+    assert "Plate colors unified" in summary

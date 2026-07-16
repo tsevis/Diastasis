@@ -3,6 +3,7 @@ import networkx as nx
 from rtree import index
 from shapely.ops import unary_union
 from shapely.validation import make_valid
+from .color_utils import color_distance, parse_color, rgb_to_hex
 from .graph_solver import GraphSolver
 from .svg_parser import SVGParser, Shape
 from .geometry_engine import GeometryEngine
@@ -346,6 +347,111 @@ def drop_sliver_fragments(shapes, canvas_area, min_area_ratio):
     return kept, len(shapes) - len(kept)
 
 
+def separate_by_color(shapes, tolerance=0.0):
+    """
+    Group shapes into plates by fill color. With tolerance > 0, colors within
+    that RGB distance of an existing plate's seed color are merged into it
+    (greedy first-fit clustering in source order). Shapes with no resolvable
+    fill are collected into one trailing plate.
+
+    Returns (coloring, representatives, unresolved_count) where:
+      - coloring maps shape index -> plate id
+      - representatives maps plate id -> average ink hex (None for the
+        no-fill plate)
+      - unresolved_count is the number of shapes with no parseable fill.
+    """
+    clusters = []  # each: {"seed": rgb, "sum": [r, g, b], "count": n}
+    coloring = {}
+    unresolved_ids = []
+
+    for idx, shape in enumerate(shapes):
+        rgb = parse_color(get_shape_fill(shape, fallback_color=None))
+        if rgb is None:
+            unresolved_ids.append(idx)
+            continue
+
+        assigned = next(
+            (cid for cid, cluster in enumerate(clusters)
+             if color_distance(rgb, cluster["seed"]) <= tolerance),
+            None,
+        )
+        if assigned is None:
+            assigned = len(clusters)
+            clusters.append({"seed": rgb, "sum": [0, 0, 0], "count": 0})
+
+        cluster = clusters[assigned]
+        for channel in range(3):
+            cluster["sum"][channel] += rgb[channel]
+        cluster["count"] += 1
+        coloring[idx] = assigned
+
+    representatives = {}
+    for cid, cluster in enumerate(clusters):
+        n = cluster["count"]
+        avg = tuple(int(round(cluster["sum"][channel] / n)) for channel in range(3))
+        representatives[cid] = rgb_to_hex(avg)
+
+    if unresolved_ids:
+        unresolved_plate = len(clusters)
+        for idx in unresolved_ids:
+            coloring[idx] = unresolved_plate
+        representatives[unresolved_plate] = None
+
+    return coloring, representatives, len(unresolved_ids)
+
+
+def apply_plate_colors(shapes, coloring, representatives):
+    """
+    Return copies of shapes whose fill is set to their plate's representative
+    ink, producing true single-ink plates. Shapes on the no-fill plate keep
+    their original (fill-less) metadata.
+    """
+    recolored = []
+    for idx, shape in enumerate(shapes):
+        representative = representatives.get(coloring.get(idx))
+        metadata = dict(shape.metadata or {})
+        if representative is not None:
+            # metadata['fill'] takes precedence over style in get_shape_fill.
+            metadata["fill"] = representative
+        recolored.append(
+            Shape(
+                id=idx,
+                geometry=shape.geometry,
+                metadata=metadata,
+                d_attribute=shape.d_attribute,
+                native_shape=shape.native_shape,
+            )
+        )
+    return recolored
+
+
+def _layer_breakdown_summary(shapes, coloring, canvas_area, row_label="Color"):
+    """Tiny-fragment count and per-layer area share, shared by all modes."""
+    layer_counts = defaultdict(int)
+    for color_id in coloring.values():
+        layer_counts[color_id] += 1
+
+    total_area = sum((shape.geometry.area if shape.geometry else 0.0) for shape in shapes)
+    tiny_threshold = canvas_area * 0.0002 if canvas_area > 0 else 0.01
+    tiny_count = sum(
+        1 for shape in shapes
+        if shape.geometry is not None and shape.geometry.area < tiny_threshold
+    )
+
+    text = f"Tiny fragments (<{tiny_threshold:.3f} area): {tiny_count}\n"
+    text += "Layer area share:\n"
+    for color_id in sorted(layer_counts):
+        text += f"{row_label} {color_id}: {layer_counts[color_id]} shapes\n"
+        if total_area > 0:
+            layer_area = sum(
+                shapes[sid].geometry.area
+                for sid in coloring
+                if coloring[sid] == color_id and shapes[sid].geometry is not None
+            )
+            text += f"  Area share: {(layer_area / total_area) * 100:.1f}%\n"
+    return text
+
+
 def run_diastasis(
     svg_filepath,
     algorithm="minimum_layers",
@@ -361,6 +467,8 @@ def run_diastasis(
     performance_shape_threshold=1200,
     include_strokes=False,
     min_fragment_ratio=0.0,
+    color_tolerance=0.0,
+    unify_plate_colors=False,
 ):
     parser = SVGParser(include_strokes=include_strokes)
     shapes, svg_width, svg_height = parser.load_svg(svg_filepath)
@@ -388,6 +496,46 @@ def run_diastasis(
 
     geo_engine = GeometryEngine(use_spatial_index=True)
     canvas_area = float(svg_width or 0) * float(svg_height or 0)
+
+    if mode == "color":
+        coloring, representatives, unresolved_count = separate_by_color(
+            shapes, tolerance=color_tolerance
+        )
+        if unify_plate_colors:
+            shapes = apply_plate_colors(shapes, coloring, representatives)
+
+        num_plates = len(set(coloring.values()))
+        summary = f"Processing complete (Color Separation). {num_plates} color plates.\n"
+        summary += f"Visible boundary clipping: {'Enabled' if clip_visible_boundaries else 'Disabled'}\n"
+        summary += f"Performance mode: {'Enabled' if performance_mode else 'Disabled'}\n"
+        if include_strokes:
+            summary += "Stroke-aware footprints: Enabled\n"
+        if used_performance_mode:
+            summary += (
+                f"Performance simplification applied: {original_shape_count} -> {len(shapes)} shapes "
+                f"(tolerance: {performance_tolerance:.3f})\n"
+            )
+        if color_tolerance > 0:
+            summary += f"Color merge tolerance: {color_tolerance:.1f} (RGB distance)\n"
+        if unify_plate_colors:
+            summary += "Plate colors unified to representative ink.\n"
+        if unresolved_count:
+            summary += f"Shapes with no resolvable fill: {unresolved_count} (grouped as one plate)\n"
+
+        summary += "\nPlate inks:\n"
+        plate_counts = defaultdict(int)
+        for plate_id in coloring.values():
+            plate_counts[plate_id] += 1
+        for plate_id in sorted(representatives):
+            ink = representatives[plate_id] if representatives[plate_id] is not None else "(no fill)"
+            summary += f"  Plate {plate_id}: {ink} — {plate_counts[plate_id]} shapes\n"
+        summary += "\n"
+        summary += _layer_breakdown_summary(shapes, coloring, canvas_area, row_label="Plate")
+
+        grouped_coloring = defaultdict(list)
+        for shape_id, plate_id in coloring.items():
+            grouped_coloring[plate_id].append(shape_id)
+        return shapes, grouped_coloring, summary, svg_width, svg_height
 
     if mode == "flat":
         # Enforce area exclusivity across all output layers.
