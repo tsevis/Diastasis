@@ -437,6 +437,74 @@ def apply_plate_colors(
     return recolored
 
 
+def merge_same_color_fragments(
+    shapes: List[Shape],
+    grouped_coloring: Dict[int, List[int]],
+) -> Tuple[List[Shape], Dict[int, List[int]], int]:
+    """
+    Within each layer, union shapes that share a resolved fill color into one
+    consolidated geometry. Removes hairline seams between adjacent same-color
+    fragments and yields one path per (layer, ink) — ideal for cut/print
+    plates. Shapes of differing colors on a layer stay separate.
+
+    Returns (new_shapes, new_grouped_coloring, original_shape_count).
+    """
+    original_count = len(shapes)
+    new_shapes: List[Shape] = []
+    new_grouped: Dict[int, List[int]] = defaultdict(list)
+
+    for color_id in sorted(grouped_coloring):
+        by_fill: Dict[Optional[str], List[int]] = defaultdict(list)
+        for sid in grouped_coloring[color_id]:
+            by_fill[get_shape_fill(shapes[sid], fallback_color=None)].append(sid)
+
+        for fill_ids in by_fill.values():
+            geometries = [
+                shapes[sid].geometry for sid in fill_ids if shapes[sid].geometry is not None
+            ]
+            if not geometries:
+                continue
+            merged_geometry = geometries[0] if len(geometries) == 1 else _safe_unary_union(geometries)
+            if merged_geometry is None or merged_geometry.is_empty:
+                continue
+
+            new_id = len(new_shapes)
+            new_shapes.append(
+                Shape(
+                    id=new_id,
+                    geometry=merged_geometry,
+                    metadata=shapes[fill_ids[0]].metadata,
+                    # Geometry changed, so any original markup is no longer valid.
+                    d_attribute=None,
+                    native_shape=None,
+                )
+            )
+            new_grouped[color_id].append(new_id)
+
+    return new_shapes, new_grouped, original_count
+
+
+def _safe_unary_union(geometries):
+    """unary_union with a sanitizing fallback for invalid inputs."""
+    try:
+        return unary_union(geometries)
+    except Exception:
+        try:
+            return unary_union([_sanitize_geometry(g) for g in geometries])
+        except Exception:
+            # Last resort: fold pairwise so one bad geometry can't lose the rest.
+            merged = None
+            for geometry in geometries:
+                if merged is None:
+                    merged = geometry
+                    continue
+                try:
+                    merged = _sanitize_geometry(merged).union(_sanitize_geometry(geometry))
+                except Exception:
+                    continue
+            return merged
+
+
 def _layer_breakdown_summary(
     shapes: List[Shape],
     coloring: Dict[int, int],
@@ -486,6 +554,7 @@ def run_diastasis(
     min_fragment_ratio=0.0,
     color_tolerance=0.0,
     unify_plate_colors=False,
+    merge_fragments=False,
 ):
     parser = SVGParser(include_strokes=include_strokes)
     shapes, svg_width, svg_height = parser.load_svg(svg_filepath)
@@ -552,6 +621,11 @@ def run_diastasis(
         grouped_coloring = defaultdict(list)
         for shape_id, plate_id in coloring.items():
             grouped_coloring[plate_id].append(shape_id)
+
+        if merge_fragments:
+            shapes, grouped_coloring, before = merge_same_color_fragments(shapes, grouped_coloring)
+            summary += f"Same-color fragments merged: {before} -> {len(shapes)} shapes\n"
+
         return shapes, grouped_coloring, summary, svg_width, svg_height
 
     if mode == "flat":
@@ -714,6 +788,10 @@ def run_diastasis(
     grouped_coloring = defaultdict(list)
     for shape_id, color_id in coloring.items():
         grouped_coloring[color_id].append(shape_id)
+
+    if merge_fragments:
+        shapes, grouped_coloring, before = merge_same_color_fragments(shapes, grouped_coloring)
+        summary += f"Same-color fragments merged: {before} -> {len(shapes)} shapes\n"
 
     return shapes, grouped_coloring, summary, svg_width, svg_height # Updated return values
 

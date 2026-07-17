@@ -99,3 +99,26 @@ def test_cli_color_mode(tmp_path):
     outdir = str(tmp_path / "out")
     assert main([str(svg), "-o", outdir, "--mode", "color", "-q"]) == 0
     assert os.path.exists(os.path.join(outdir, "c_layered.svg"))
+
+
+def test_cli_single_clipped_layer(tmp_path):
+    svg = tmp_path / "s.svg"
+    svg.write_text(SIMPLE_SVG)
+    outdir = str(tmp_path / "out")
+    assert main([str(svg), "-o", outdir, "--clip", "--single-clipped-layer", "-q"]) == 0
+    assert os.path.exists(os.path.join(outdir, "s_clipped.svg"))
+    content = open(os.path.join(outdir, "s_clipped.svg")).read()
+    assert 'id="Single_Clipped_Layer"' in content
+
+
+def test_cli_merge_fragments(tmp_path):
+    svg = tmp_path / "m.svg"
+    svg.write_text(
+        '<svg width="40" height="20" xmlns="http://www.w3.org/2000/svg">'
+        '<rect x="0" y="0" width="20" height="20" fill="#ff0000"/>'
+        '<rect x="20" y="0" width="20" height="20" fill="#ff0000"/>'
+        "</svg>"
+    )
+    outdir = str(tmp_path / "out")
+    assert main([str(svg), "-o", outdir, "--mode", "color", "--merge-fragments"]) == 0
+    assert os.path.exists(os.path.join(outdir, "m_layered.svg"))

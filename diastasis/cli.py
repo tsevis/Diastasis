@@ -17,6 +17,7 @@ from .svg_export import (
     EXPORT_PROFILES,
     save_layers_to_files,
     save_layers_to_separate_files,
+    save_single_layer_file,
 )
 
 TOUCH_POLICIES = {"strict": "any_touch", "corners": "edge_or_overlap"}
@@ -71,6 +72,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="color mode: repaint every shape with its plate's representative ink.",
     )
     parser.add_argument(
+        "--merge-fragments", action="store_true",
+        help="Union touching same-color shapes within each layer into one path per ink.",
+    )
+    parser.add_argument(
+        "--single-clipped-layer", action="store_true",
+        help="Also write one flat SVG with every result shape on a single layer "
+             "(pairs with --clip for a non-overlapping clipped export).",
+    )
+    parser.add_argument(
         "--profile", choices=sorted(EXPORT_PROFILES), default="Illustrator-safe",
         help="Export profile (default: Illustrator-safe).",
     )
@@ -107,6 +117,7 @@ def _process_file(svg_path: str, args: argparse.Namespace) -> bool:
             min_fragment_ratio=args.drop_slivers,
             color_tolerance=args.color_tolerance,
             unify_plate_colors=args.unify_plate_colors,
+            merge_fragments=args.merge_fragments,
         )
         if result[0] is None:
             print(f"error: {svg_path}: {result[2]}", file=sys.stderr)
@@ -123,6 +134,11 @@ def _process_file(svg_path: str, args: argparse.Namespace) -> bool:
                 shapes, grouped_coloring, args.output, name, width, height,
                 preserve_original_colors=not args.recolor,
                 export_profile=args.profile,
+            )
+        if args.single_clipped_layer:
+            os.makedirs(args.output, exist_ok=True)
+            save_single_layer_file(
+                shapes, os.path.join(args.output, f"{name}_clipped.svg"), width, height
             )
     except Exception as exc:
         # A bad file must not abort a batch run or leak a traceback.

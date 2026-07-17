@@ -41,6 +41,7 @@ class DiastasisGUI:
         self.performance_mode = tk.BooleanVar(value=False)
         self.preserve_colors = tk.BooleanVar(value=True)
         self.include_strokes = tk.BooleanVar(value=False)
+        self.merge_fragments = tk.BooleanVar(value=False)
         self.flat_min_fragment = tk.StringVar(value="0")
         self.color_tolerance = tk.StringVar(value="0")
         self.unify_plate_colors = tk.BooleanVar(value=False)
@@ -163,6 +164,12 @@ class DiastasisGUI:
             variable=self.include_strokes,
         )
         self.include_strokes_check.pack(anchor=tk.W)
+        self.merge_fragments_check = ttk.Checkbutton(
+            clip_frame,
+            text="Merge Touching Same-Color Fragments (one path per ink)",
+            variable=self.merge_fragments,
+        )
+        self.merge_fragments_check.pack(anchor=tk.W)
 
         perf_frame = ttk.Frame(left_frame)
         perf_frame.pack(fill=tk.X, pady=(0, 8))
@@ -606,6 +613,7 @@ class DiastasisGUI:
             min_fragment_ratio=self._safe_float(self.flat_min_fragment),
             color_tolerance=self._safe_float(self.color_tolerance),
             unify_plate_colors=self.unify_plate_colors.get(),
+            merge_fragments=self.merge_fragments.get(),
         )
 
     def save_layers(self):

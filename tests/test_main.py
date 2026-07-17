@@ -492,3 +492,52 @@ def test_run_diastasis_color_mode_with_clipping_preserves_fills(tmp_path):
     for i in range(len(shapes)):
         for j in range(i + 1, len(shapes)):
             assert shapes[i].geometry.intersection(shapes[j].geometry).area == 0
+
+
+def test_merge_same_color_fragments_unions_only_matching_fills():
+    from diastasis.main import merge_same_color_fragments
+    shapes = [
+        Shape(id=0, geometry=box(0, 0, 10, 10), metadata={"fill": "#ff0000"}),
+        Shape(id=1, geometry=box(10, 0, 20, 10), metadata={"fill": "#ff0000"}),  # touches 0
+        Shape(id=2, geometry=box(0, 20, 10, 30), metadata={"fill": "#0000ff"}),
+    ]
+    new_shapes, new_grouped, before = merge_same_color_fragments(shapes, {0: [0, 1, 2]})
+    assert before == 3
+    assert len(new_shapes) == 2
+    areas = sorted(s.geometry.area for s in new_shapes)
+    assert areas == [100.0, 200.0]          # reds merged (200), blue intact (100)
+    fills = {s.metadata["fill"] for s in new_shapes}
+    assert fills == {"#ff0000", "#0000ff"}
+    # New grouping still references valid indices into new_shapes.
+    assert sorted(new_grouped[0]) == [0, 1]
+    assert all(s.d_attribute is None and s.native_shape is None for s in new_shapes)
+
+
+def test_merge_fragments_keeps_different_layers_separate():
+    from diastasis.main import merge_same_color_fragments
+    shapes = [
+        Shape(id=0, geometry=box(0, 0, 10, 10), metadata={"fill": "#ff0000"}),
+        Shape(id=1, geometry=box(10, 0, 20, 10), metadata={"fill": "#ff0000"}),  # touches 0, other layer
+    ]
+    # Same color, but assigned to different layers -> must NOT merge across layers.
+    new_shapes, new_grouped, _ = merge_same_color_fragments(shapes, {0: [0], 1: [1]})
+    assert len(new_shapes) == 2
+    assert set(new_grouped.keys()) == {0, 1}
+
+
+def test_run_diastasis_color_mode_merge_produces_one_path_per_plate(tmp_path):
+    svg_content = """
+    <svg width="100" height="40" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="20" height="20" fill="#ff0000" />
+      <rect x="20" y="0" width="20" height="20" fill="#ff0000" />
+      <rect x="40" y="0" width="20" height="20" fill="#ff0000" />
+      <rect x="0" y="20" width="60" height="20" fill="#0000ff" />
+    </svg>
+    """
+    svg_file = tmp_path / "merge.svg"
+    svg_file.write_text(svg_content)
+
+    shapes, grouped, summary, _, _ = run_diastasis(str(svg_file), mode="color", merge_fragments=True)
+    # 3 touching reds -> 1 path, 1 blue -> 1 path: 2 shapes total across 2 plates.
+    assert len(shapes) == 2
+    assert "Same-color fragments merged: 4 -> 2 shapes" in summary
