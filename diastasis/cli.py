@@ -136,7 +136,7 @@ def _process_file(svg_path: str, args: argparse.Namespace) -> bool:
                 export_profile=args.profile,
             )
         if args.single_clipped_layer:
-            os.makedirs(args.output, exist_ok=True)
+            # args.output already exists here (save_layers_to_files created it).
             save_single_layer_file(
                 shapes, os.path.join(args.output, f"{name}_clipped.svg"), width, height
             )

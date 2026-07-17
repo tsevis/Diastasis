@@ -541,3 +541,27 @@ def test_run_diastasis_color_mode_merge_produces_one_path_per_plate(tmp_path):
     # 3 touching reds -> 1 path, 1 blue -> 1 path: 2 shapes total across 2 plates.
     assert len(shapes) == 2
     assert "Same-color fragments merged: 4 -> 2 shapes" in summary
+
+
+def test_merge_fragments_canonicalizes_color_notation():
+    from diastasis.main import merge_same_color_fragments
+    # Same color, three different textual notations, all touching on one layer.
+    shapes = [
+        Shape(id=0, geometry=box(0, 0, 10, 10), metadata={"fill": "#FF0000"}),
+        Shape(id=1, geometry=box(10, 0, 20, 10), metadata={"fill": "#ff0000"}),
+        Shape(id=2, geometry=box(20, 0, 30, 10), metadata={"fill": "red"}),
+    ]
+    new_shapes, _, before = merge_same_color_fragments(shapes, {0: [0, 1, 2]})
+    assert before == 3
+    # All three resolve to the same RGB, so they merge into one 30x10 path.
+    assert len(new_shapes) == 1
+    assert new_shapes[0].geometry.area == 300.0
+
+
+def test_merge_fragments_copies_metadata_not_aliases():
+    from diastasis.main import merge_same_color_fragments
+    original_meta = {"fill": "#00ff00", "id": "orig"}
+    shapes = [Shape(id=0, geometry=box(0, 0, 10, 10), metadata=original_meta)]
+    new_shapes, _, _ = merge_same_color_fragments(shapes, {0: [0]})
+    new_shapes[0].metadata["id"] = "mutated"
+    assert original_meta["id"] == "orig"   # source dict untouched

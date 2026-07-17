@@ -454,9 +454,14 @@ def merge_same_color_fragments(
     new_grouped: Dict[int, List[int]] = defaultdict(list)
 
     for color_id in sorted(grouped_coloring):
-        by_fill: Dict[Optional[str], List[int]] = defaultdict(list)
+        by_fill: Dict[object, List[int]] = defaultdict(list)
         for sid in grouped_coloring[color_id]:
-            by_fill[get_shape_fill(shapes[sid], fallback_color=None)].append(sid)
+            # Key on the resolved RGB so different notations for the same color
+            # (#FF0000 vs #ff0000 vs red) merge; fall back to the raw string
+            # for fills we cannot parse so they never collide under one key.
+            raw_fill = get_shape_fill(shapes[sid], fallback_color=None)
+            key: object = parse_color(raw_fill) or raw_fill
+            by_fill[key].append(sid)
 
         for fill_ids in by_fill.values():
             geometries = [
@@ -465,7 +470,11 @@ def merge_same_color_fragments(
             if not geometries:
                 continue
             merged_geometry = geometries[0] if len(geometries) == 1 else _safe_unary_union(geometries)
-            if merged_geometry is None or merged_geometry.is_empty:
+            if (
+                merged_geometry is None
+                or merged_geometry.is_empty
+                or merged_geometry.geom_type not in ("Polygon", "MultiPolygon")
+            ):
                 continue
 
             new_id = len(new_shapes)
@@ -473,7 +482,7 @@ def merge_same_color_fragments(
                 Shape(
                     id=new_id,
                     geometry=merged_geometry,
-                    metadata=shapes[fill_ids[0]].metadata,
+                    metadata=dict(shapes[fill_ids[0]].metadata or {}),
                     # Geometry changed, so any original markup is no longer valid.
                     d_attribute=None,
                     native_shape=None,
@@ -590,7 +599,19 @@ def run_diastasis(
         if unify_plate_colors:
             shapes = apply_plate_colors(shapes, coloring, representatives)
 
-        num_plates = len(set(coloring.values()))
+        grouped_coloring = defaultdict(list)
+        for shape_id, plate_id in coloring.items():
+            grouped_coloring[plate_id].append(shape_id)
+
+        # Consolidate before reporting so plate counts match the output files.
+        merged_note = ""
+        if merge_fragments:
+            before = len(shapes)
+            shapes, grouped_coloring, _ = merge_same_color_fragments(shapes, grouped_coloring)
+            coloring = {sid: pid for pid, sids in grouped_coloring.items() for sid in sids}
+            merged_note = f"Same-color fragments merged: {before} -> {len(shapes)} shapes\n"
+
+        num_plates = len(grouped_coloring)
         summary = f"Processing complete (Color Separation). {num_plates} color plates.\n"
         summary += f"Visible boundary clipping: {'Enabled' if clip_visible_boundaries else 'Disabled'}\n"
         summary += f"Performance mode: {'Enabled' if performance_mode else 'Disabled'}\n"
@@ -607,9 +628,10 @@ def run_diastasis(
             summary += "Plate colors unified to representative ink.\n"
         if unresolved_count:
             summary += f"Shapes with no resolvable fill: {unresolved_count} (grouped as one plate)\n"
+        summary += merged_note
 
         summary += "\nPlate inks:\n"
-        plate_counts = defaultdict(int)
+        plate_counts: Dict[int, int] = defaultdict(int)
         for plate_id in coloring.values():
             plate_counts[plate_id] += 1
         for plate_id in sorted(representatives):
@@ -617,14 +639,6 @@ def run_diastasis(
             summary += f"  Plate {plate_id}: {ink} — {plate_counts[plate_id]} shapes\n"
         summary += "\n"
         summary += _layer_breakdown_summary(shapes, coloring, canvas_area, row_label="Plate")
-
-        grouped_coloring = defaultdict(list)
-        for shape_id, plate_id in coloring.items():
-            grouped_coloring[plate_id].append(shape_id)
-
-        if merge_fragments:
-            shapes, grouped_coloring, before = merge_same_color_fragments(shapes, grouped_coloring)
-            summary += f"Same-color fragments merged: {before} -> {len(shapes)} shapes\n"
 
         return shapes, grouped_coloring, summary, svg_width, svg_height
 
