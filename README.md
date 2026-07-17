@@ -90,6 +90,12 @@ diastasis --batch input_folder/ -o output/ --profile Print
 # Color separation: one plate per ink, merge near colors, unify to a single ink
 diastasis artwork.svg -o output/ --mode color --color-tolerance 12 --unify-plate-colors
 
+# Clean cut/print plates: one path per ink with seams between tiles removed
+diastasis artwork.svg -o output/ --mode color --merge-fragments
+
+# Non-overlapping clipped mosaic as one flat SVG layer
+diastasis artwork.svg -o output/ --clip --single-clipped-layer
+
 # Check how heavy a file is before processing
 diastasis artwork.svg --estimate
 ```

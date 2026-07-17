@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-07-17
+
+### Added
+- Merge touching same-color fragments (`--merge-fragments` /
+  `merge_fragments=True`, GUI checkbox): within each layer, shapes that share
+  a fill color are unioned into one consolidated path, removing hairline seams
+  between adjacent same-color tiles and yielding one path per ink per layer —
+  ideal for cut/print plates. Shapes of different colors on a layer stay
+  separate. The summary reports the before/after shape count.
+- CLI `--single-clipped-layer`: writes the one-flat-layer clipped export
+  (`name_clipped.svg`) from the command line — previously GUI-only. Pairs with
+  `--clip` for a non-overlapping single-layer file.
+
 ## [0.5.0] - 2026-07-17
 
 ### Added

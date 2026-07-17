@@ -185,3 +185,20 @@ color — the model print production actually uses.
 The summary lists each plate's ink and shape count, so you can see the ink
 budget at a glance. Combine with `Save Layers As Separate Files...` to emit one
 registered SVG per plate.
+
+## Merge Touching Same-Color Fragments
+
+`Merge Touching Same-Color Fragments` (GUI checkbox, or `--merge-fragments`)
+unions shapes that share a fill color within each layer into one path. This
+removes the hairline seams between adjacent same-color tiles and yields one
+clean path per ink per layer — what a cutter or press wants. Shapes of
+different colors on the same layer stay separate. It works in every mode, but
+is most useful with `Color Separation` (one consolidated path per plate). The
+summary reports the before/after shape count.
+
+## Single Clipped Layer (CLI)
+
+`--single-clipped-layer` writes an extra `name_clipped.svg` with every result
+shape flattened onto one layer. Paired with `--clip`, that is the headless
+equivalent of the GUI's `Save Clipped 1-Layer As...` — a non-overlapping
+mosaic where pieces touch but never overlap.
