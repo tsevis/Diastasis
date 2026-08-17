@@ -25,7 +25,10 @@ jobs:
         run: ruff check .
       - name: Check formatting
         run: ruff format --check .
+      # Type checking is version-independent here, and numpy's stubs require
+      # mypy to target 3.12+, so it runs once rather than across the matrix.
       - name: Type check
+        if: matrix.python-version == '3.12'
         run: mypy
       - name: Run tests
         run: pytest tests/ -q

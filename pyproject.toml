@@ -58,16 +58,19 @@ target-version = "py310"
 testpaths = ["tests"]
 
 [tool.mypy]
-python_version = "3.10"
+# No python_version pin: numpy's bundled stubs use 3.12+ syntax, which mypy
+# rejects when asked to type-check against an older target.
 files = ["diastasis"]
 no_implicit_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 
-# Geometry/graph dependencies ship no type information; their absence is not
-# a defect in this codebase, so only the missing-stub noise is suppressed.
+# Geometry/graph dependencies ship no type information, and the gui extras
+# (PIL, cairosvg) are optional and absent from a plain dev install. Neither
+# is a defect here, so only the missing-stub noise is suppressed.
 [[tool.mypy.overrides]]
 module = [
+    "PIL.*",
     "cairosvg.*",
     "lxml.*",
     "networkx.*",
