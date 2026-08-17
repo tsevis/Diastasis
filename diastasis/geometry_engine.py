@@ -1,7 +1,7 @@
 import logging
 import multiprocessing
 from itertools import combinations
-from typing import Iterable, List, Tuple
+from typing import Iterable, List, Optional, Tuple
 
 import numpy as np
 import shapely
@@ -17,8 +17,13 @@ logger = logging.getLogger(__name__)
 VALID_TOUCH_POLICIES = ("any_touch", "edge_or_overlap")
 
 
-def check_and_calculate_overlap_worker(shapes_pair: Tuple[int, int, Polygon, Polygon]) -> Tuple[int, int, float]:
-    """Worker function to check for overlap and calculate the area."""
+def check_and_calculate_overlap_worker(
+    shapes_pair: Tuple[int, int, Polygon, Polygon],
+) -> Optional[Tuple[int, int, float]]:
+    """Worker function to check for overlap and calculate the area.
+
+    Returns None when the pair does not overlap; callers filter those out.
+    """
     i, j, shape1_geom, shape2_geom = shapes_pair
     if shape1_geom.intersects(shape2_geom):
         overlap_area = shape1_geom.intersection(shape2_geom).area
@@ -52,7 +57,8 @@ class GeometryEngine:
         except Exception as exc:
             logger.warning(
                 "Vectorized overlap detection failed, falling back to pairwise: %s",
-                exc, exc_info=True,
+                exc,
+                exc_info=True,
             )
             return self._detect_overlaps_pairwise(shapes)
 
@@ -70,9 +76,7 @@ class GeometryEngine:
               corner-only (point) touches are allowed.
         """
         if touch_policy not in VALID_TOUCH_POLICIES:
-            raise ValueError(
-                f"Unknown touch_policy: {touch_policy!r}. Valid options: {VALID_TOUCH_POLICIES}"
-            )
+            raise ValueError(f"Unknown touch_policy: {touch_policy!r}. Valid options: {VALID_TOUCH_POLICIES}")
         if len(shapes) < 2:
             return []
         try:
@@ -80,7 +84,8 @@ class GeometryEngine:
         except Exception as exc:
             logger.warning(
                 "Vectorized contact detection failed, falling back to pairwise: %s",
-                exc, exc_info=True,
+                exc,
+                exc_info=True,
             )
             return self._detect_contacts_pairwise(shapes, touch_policy)
 
@@ -97,10 +102,7 @@ class GeometryEngine:
         intersections = shapely.intersection(geometries[left], geometries[right])
         areas = shapely.area(intersections)
         keep = areas > 0
-        return [
-            (int(i), int(j), float(area))
-            for i, j, area in zip(left[keep], right[keep], areas[keep])
-        ]
+        return [(int(i), int(j), float(area)) for i, j, area in zip(left[keep], right[keep], areas[keep])]
 
     def _detect_contacts_vectorized(self, shapes: List[Shape], touch_policy: str) -> List[Tuple[int, int]]:
         geometries = self._sanitized_geometry_array(shapes)
@@ -166,15 +168,17 @@ class GeometryEngine:
         for i, j in self._candidate_pairs(shapes):
             shape1 = shapes[i]
             shape2 = shapes[j]
-            if self._bounds_intersect(shape1.geometry.bounds, shape2.geometry.bounds) and self._is_contact_conflict(
-                shape1.geometry, shape2.geometry, touch_policy
-            ):
+            if self._bounds_intersect(
+                shape1.geometry.bounds, shape2.geometry.bounds
+            ) and self._is_contact_conflict(shape1.geometry, shape2.geometry, touch_policy):
                 contacts.append((i, j))
         return contacts
 
     def parallel_overlap_detection(self, shapes: List[Shape]) -> List[Tuple[int, int, float]]:
         """Detects overlaps in parallel and calculates their area."""
-        shape_pairs = [(i, j, shapes[i].geometry, shapes[j].geometry) for i, j in combinations(range(len(shapes)), 2)]
+        shape_pairs = [
+            (i, j, shapes[i].geometry, shapes[j].geometry) for i, j in combinations(range(len(shapes)), 2)
+        ]
 
         with multiprocessing.Pool(processes=self.max_workers) as pool:
             results = pool.map(check_and_calculate_overlap_worker, shape_pairs)
@@ -194,7 +198,10 @@ class GeometryEngine:
         Returns candidate shape index pairs using the configured strategy.
         """
         if not self.use_spatial_index:
-            return combinations(range(len(shapes)), 2)
+            # This is a generator (it yields below), so `return` here would
+            # end it without emitting anything -- delegate instead.
+            yield from combinations(range(len(shapes)), 2)
+            return
 
         self.build_spatial_index(shapes)
         seen = set()

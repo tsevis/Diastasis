@@ -1,33 +1,38 @@
+from itertools import combinations
+
 import pytest
 from diastasis.geometry_engine import GeometryEngine
 from diastasis.svg_parser import Shape
 from shapely.geometry import Polygon, Point, box
 
+
 # Fixture for creating simple shapes
 @pytest.fixture
 def simple_shapes():
     shape1 = Shape(id=0, geometry=box(0, 0, 10, 10), metadata={})
-    shape2 = Shape(id=1, geometry=box(5, 5, 15, 15), metadata={}) # Overlaps with shape1
-    shape3 = Shape(id=2, geometry=box(20, 20, 30, 30), metadata={}) # No overlap
-    shape4 = Shape(id=3, geometry=Point(7, 7).buffer(3), metadata={}) # Overlaps with shape1 and shape2
+    shape2 = Shape(id=1, geometry=box(5, 5, 15, 15), metadata={})  # Overlaps with shape1
+    shape3 = Shape(id=2, geometry=box(20, 20, 30, 30), metadata={})  # No overlap
+    shape4 = Shape(id=3, geometry=Point(7, 7).buffer(3), metadata={})  # Overlaps with shape1 and shape2
     return [shape1, shape2, shape3, shape4]
+
 
 def test_detect_overlaps_no_spatial_index(simple_shapes):
     engine = GeometryEngine(use_spatial_index=False)
     overlaps = engine.detect_overlaps(simple_shapes)
     # Expected overlaps: (0,1), (0,3), (1,3)
     detected_pairs = sorted([(i, j) for i, j, area in overlaps])
-    expected_overlaps = sorted([(0,1), (0,3), (1,3)])
+    expected_overlaps = sorted([(0, 1), (0, 3), (1, 3)])
     assert detected_pairs == expected_overlaps
     for _, _, area in overlaps:
         assert area > 0
+
 
 def test_detect_overlaps_spatial_index(simple_shapes):
     engine = GeometryEngine(use_spatial_index=True)
     overlaps = engine.detect_overlaps(simple_shapes)
     # Expected overlaps: (0,1), (0,3), (1,3)
     detected_pairs = sorted([(i, j) for i, j, area in overlaps])
-    expected_overlaps = sorted([(0,1), (0,3), (1,3)])
+    expected_overlaps = sorted([(0, 1), (0, 3), (1, 3)])
     assert detected_pairs == expected_overlaps
     for _, _, area in overlaps:
         assert area > 0
@@ -38,24 +43,27 @@ def test_detect_overlap_pairs(simple_shapes):
     pairs = sorted(engine.detect_overlap_pairs(simple_shapes))
     assert pairs == sorted([(0, 1), (0, 3), (1, 3)])
 
+
 def test_parallel_overlap_detection(simple_shapes):
-    engine = GeometryEngine(max_workers=2) # Use 2 workers for testing parallel
+    engine = GeometryEngine(max_workers=2)  # Use 2 workers for testing parallel
     overlaps = engine.parallel_overlap_detection(simple_shapes)
     # Expected overlaps: (0,1), (0,3), (1,3)
     detected_pairs = sorted([(i, j) for i, j, area in overlaps])
-    expected_overlaps = sorted([(0,1), (0,3), (1,3)])
+    expected_overlaps = sorted([(0, 1), (0, 3), (1, 3)])
     assert detected_pairs == expected_overlaps
     for _, _, area in overlaps:
         assert area > 0
+
 
 def test_empty_shapes_list():
     engine = GeometryEngine()
     overlaps = engine.detect_overlaps([])
     assert overlaps == []
 
+
 def test_single_shape_list():
     engine = GeometryEngine()
-    shape = Shape(id=0, geometry=box(0,0,10,10), metadata={})
+    shape = Shape(id=0, geometry=box(0, 0, 10, 10), metadata={})
     overlaps = engine.detect_overlaps([shape])
     assert overlaps == []
 
@@ -100,6 +108,7 @@ def test_detect_contacts_handles_invalid_geometry():
 
 def _random_shapes(count, seed):
     import random
+
     rng = random.Random(seed)
     shapes = []
     for i in range(count):
@@ -164,3 +173,25 @@ def test_count_candidate_pairs_matches_bbox_candidates(simple_shapes):
     assert vectorized_count == loop_count
     assert engine.count_candidate_pairs([]) == 0
     assert engine.count_candidate_pairs(simple_shapes[:1]) == 0
+
+
+def test_candidate_pairs_without_spatial_index_yields_all_combinations(simple_shapes):
+    """Without the spatial index every pair is a candidate (no index to prune with)."""
+    engine = GeometryEngine(use_spatial_index=False)
+    pairs = sorted(engine._candidate_pairs(simple_shapes))
+    expected = sorted(combinations(range(len(simple_shapes)), 2))
+    assert pairs == expected
+
+
+def test_pairwise_fallback_without_spatial_index_finds_overlaps(simple_shapes):
+    """The pairwise fallback must detect overlaps even when the index is disabled."""
+    engine = GeometryEngine(use_spatial_index=False)
+    overlaps = engine._detect_overlaps_pairwise(simple_shapes)
+    assert sorted((i, j) for i, j, _ in overlaps) == sorted([(0, 1), (0, 3), (1, 3)])
+
+
+def test_contacts_fallback_without_spatial_index_finds_contacts(simple_shapes):
+    """The contact fallback must likewise see every touching pair without the index."""
+    engine = GeometryEngine(use_spatial_index=False)
+    contacts = engine._detect_contacts_pairwise(simple_shapes, touch_policy="any_touch")
+    assert sorted(contacts) == sorted([(0, 1), (0, 3), (1, 3)])
