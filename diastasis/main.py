@@ -1,13 +1,24 @@
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 import networkx as nx
 from rtree import index
 from shapely.ops import unary_union
-from shapely.validation import make_valid
-from .color_utils import color_distance, parse_color, rgb_to_hex
 from .graph_solver import GraphSolver
 from .svg_parser import SVGParser, Shape
 from .geometry_engine import GeometryEngine
+from .geometry_ops import (
+    safe_difference as _safe_difference,
+    safe_unary_union as _safe_unary_union,  # noqa: F401
+    sanitize_geometry as _sanitize_geometry,
+)
+
+# Color separation lives in color_separation; re-exported for API compatibility.
+from .color_separation import (  # noqa: F401
+    apply_plate_colors,
+    merge_same_color_fragments,
+    separate_by_color,
+)
+
 # Export helpers live in svg_export; re-exported here for API compatibility.
 from .svg_export import (  # noqa: F401
     build_layered_svg_string,
@@ -51,46 +62,6 @@ def flat_conflict_count(graph, coloring):
         if coloring.get(u) == coloring.get(v):
             conflicts += 1
     return conflicts
-
-
-def _sanitize_geometry(geometry):
-    if geometry is None or geometry.is_empty:
-        return geometry
-    if geometry.is_valid:
-        return geometry
-
-    try:
-        repaired = make_valid(geometry)
-        if not repaired.is_empty:
-            return repaired
-    except Exception:
-        pass
-
-    try:
-        repaired = geometry.buffer(0)
-        if not repaired.is_empty:
-            return repaired
-    except Exception:
-        pass
-
-    return geometry
-
-
-def _safe_difference(geom, mask):
-    geom = _sanitize_geometry(geom)
-    mask = _sanitize_geometry(mask)
-    if geom is None or geom.is_empty:
-        return geom
-    if mask is None or mask.is_empty:
-        return geom
-
-    try:
-        return geom.difference(mask)
-    except Exception:
-        try:
-            return _sanitize_geometry(geom).difference(_sanitize_geometry(mask))
-        except Exception:
-            return geom
 
 
 def _subtract_covered_area(geometry, placed_geometries, placed_index):
@@ -172,7 +143,8 @@ def make_shapes_area_disjoint(shapes, priority_order="source"):
     indexed_shapes = list(enumerate(shapes))
     if priority_order == "largest_first":
         ordered_shapes = [
-            shape for _, shape in sorted(
+            shape
+            for _, shape in sorted(
                 indexed_shapes,
                 key=lambda item: ((item[1].geometry.area if item[1].geometry else 0), item[0]),
                 reverse=True,
@@ -180,7 +152,8 @@ def make_shapes_area_disjoint(shapes, priority_order="source"):
         ]
     elif priority_order == "smallest_first":
         ordered_shapes = [
-            shape for _, shape in sorted(
+            shape
+            for _, shape in sorted(
                 indexed_shapes,
                 key=lambda item: ((item[1].geometry.area if item[1].geometry else 0), -item[0]),
             )
@@ -308,7 +281,9 @@ def estimate_processing_complexity(svg_filepath):
     }
 
 
-def build_flat_coloring(shapes, geo_engine, algorithm="minimum_layers", num_layers=None, touch_policy="any_touch"):
+def build_flat_coloring(
+    shapes, geo_engine, algorithm="minimum_layers", num_layers=None, touch_policy="any_touch"
+):
     """
     Build layers by coloring the touch/intersection graph.
     Adjacent (touching/intersecting) shapes are forced into different layers.
@@ -348,172 +323,6 @@ def drop_sliver_fragments(shapes, canvas_area, min_area_ratio):
     return kept, len(shapes) - len(kept)
 
 
-def separate_by_color(
-    shapes: List[Shape], tolerance: float = 0.0
-) -> Tuple[Dict[int, int], Dict[int, Optional[str]], int]:
-    """
-    Group shapes into plates by fill color. With tolerance > 0, colors within
-    that RGB distance of an existing plate's seed color are merged into it
-    (greedy first-fit clustering in source order). Shapes with no resolvable
-    fill are collected into one trailing plate.
-
-    Returns (coloring, representatives, unresolved_count) where:
-      - coloring maps shape index -> plate id
-      - representatives maps plate id -> average ink hex (None for the
-        no-fill plate)
-      - unresolved_count is the number of shapes with no parseable fill.
-    """
-    clusters = []  # each: {"seed": rgb, "sum": [r, g, b], "count": n}
-    coloring = {}
-    unresolved_ids = []
-
-    for idx, shape in enumerate(shapes):
-        rgb = parse_color(get_shape_fill(shape, fallback_color=None))
-        if rgb is None:
-            unresolved_ids.append(idx)
-            continue
-
-        assigned = next(
-            (cid for cid, cluster in enumerate(clusters)
-             if color_distance(rgb, cluster["seed"]) <= tolerance),
-            None,
-        )
-        if assigned is None:
-            assigned = len(clusters)
-            clusters.append({"seed": rgb, "sum": [0, 0, 0], "count": 0})
-
-        cluster = clusters[assigned]
-        for channel in range(3):
-            cluster["sum"][channel] += rgb[channel]
-        cluster["count"] += 1
-        coloring[idx] = assigned
-
-    representatives: Dict[int, Optional[str]] = {}
-    for cid, cluster in enumerate(clusters):
-        n = cluster["count"]
-        avg = (
-            int(round(cluster["sum"][0] / n)),
-            int(round(cluster["sum"][1] / n)),
-            int(round(cluster["sum"][2] / n)),
-        )
-        representatives[cid] = rgb_to_hex(avg)
-
-    if unresolved_ids:
-        unresolved_plate = len(clusters)
-        for idx in unresolved_ids:
-            coloring[idx] = unresolved_plate
-        representatives[unresolved_plate] = None
-
-    return coloring, representatives, len(unresolved_ids)
-
-
-def apply_plate_colors(
-    shapes: List[Shape],
-    coloring: Dict[int, int],
-    representatives: Dict[int, Optional[str]],
-) -> List[Shape]:
-    """
-    Return copies of shapes whose fill is set to their plate's representative
-    ink, producing true single-ink plates. Shapes on the no-fill plate keep
-    their original (fill-less) metadata.
-    """
-    recolored = []
-    for idx, shape in enumerate(shapes):
-        plate_id = coloring.get(idx)
-        representative = representatives.get(plate_id) if plate_id is not None else None
-        metadata = dict(shape.metadata or {})
-        if representative is not None:
-            # metadata['fill'] takes precedence over style in get_shape_fill.
-            metadata["fill"] = representative
-        recolored.append(
-            Shape(
-                id=idx,
-                geometry=shape.geometry,
-                metadata=metadata,
-                d_attribute=shape.d_attribute,
-                native_shape=shape.native_shape,
-            )
-        )
-    return recolored
-
-
-def merge_same_color_fragments(
-    shapes: List[Shape],
-    grouped_coloring: Dict[int, List[int]],
-) -> Tuple[List[Shape], Dict[int, List[int]], int]:
-    """
-    Within each layer, union shapes that share a resolved fill color into one
-    consolidated geometry. Removes hairline seams between adjacent same-color
-    fragments and yields one path per (layer, ink) — ideal for cut/print
-    plates. Shapes of differing colors on a layer stay separate.
-
-    Returns (new_shapes, new_grouped_coloring, original_shape_count).
-    """
-    original_count = len(shapes)
-    new_shapes: List[Shape] = []
-    new_grouped: Dict[int, List[int]] = defaultdict(list)
-
-    for color_id in sorted(grouped_coloring):
-        by_fill: Dict[object, List[int]] = defaultdict(list)
-        for sid in grouped_coloring[color_id]:
-            # Key on the resolved RGB so different notations for the same color
-            # (#FF0000 vs #ff0000 vs red) merge; fall back to the raw string
-            # for fills we cannot parse so they never collide under one key.
-            raw_fill = get_shape_fill(shapes[sid], fallback_color=None)
-            key: object = parse_color(raw_fill) or raw_fill
-            by_fill[key].append(sid)
-
-        for fill_ids in by_fill.values():
-            geometries = [
-                shapes[sid].geometry for sid in fill_ids if shapes[sid].geometry is not None
-            ]
-            if not geometries:
-                continue
-            merged_geometry = geometries[0] if len(geometries) == 1 else _safe_unary_union(geometries)
-            if (
-                merged_geometry is None
-                or merged_geometry.is_empty
-                or merged_geometry.geom_type not in ("Polygon", "MultiPolygon")
-            ):
-                continue
-
-            new_id = len(new_shapes)
-            new_shapes.append(
-                Shape(
-                    id=new_id,
-                    geometry=merged_geometry,
-                    metadata=dict(shapes[fill_ids[0]].metadata or {}),
-                    # Geometry changed, so any original markup is no longer valid.
-                    d_attribute=None,
-                    native_shape=None,
-                )
-            )
-            new_grouped[color_id].append(new_id)
-
-    return new_shapes, new_grouped, original_count
-
-
-def _safe_unary_union(geometries):
-    """unary_union with a sanitizing fallback for invalid inputs."""
-    try:
-        return unary_union(geometries)
-    except Exception:
-        try:
-            return unary_union([_sanitize_geometry(g) for g in geometries])
-        except Exception:
-            # Last resort: fold pairwise so one bad geometry can't lose the rest.
-            merged = None
-            for geometry in geometries:
-                if merged is None:
-                    merged = geometry
-                    continue
-                try:
-                    merged = _sanitize_geometry(merged).union(_sanitize_geometry(geometry))
-                except Exception:
-                    continue
-            return merged
-
-
 def _layer_breakdown_summary(
     shapes: List[Shape],
     coloring: Dict[int, int],
@@ -528,8 +337,7 @@ def _layer_breakdown_summary(
     total_area = sum((shape.geometry.area if shape.geometry else 0.0) for shape in shapes)
     tiny_threshold = canvas_area * 0.0002 if canvas_area > 0 else 0.01
     tiny_count = sum(
-        1 for shape in shapes
-        if shape.geometry is not None and shape.geometry.area < tiny_threshold
+        1 for shape in shapes if shape.geometry is not None and shape.geometry.area < tiny_threshold
     )
 
     text = f"Tiny fragments (<{tiny_threshold:.3f} area): {tiny_count}\n"
@@ -593,9 +401,7 @@ def run_diastasis(
     canvas_area = float(svg_width or 0) * float(svg_height or 0)
 
     if mode == "color":
-        coloring, representatives, unresolved_count = separate_by_color(
-            shapes, tolerance=color_tolerance
-        )
+        coloring, representatives, unresolved_count = separate_by_color(shapes, tolerance=color_tolerance)
         if unify_plate_colors:
             shapes = apply_plate_colors(shapes, coloring, representatives)
 
@@ -673,7 +479,9 @@ def run_diastasis(
         graph = solver.build_overlap_graph(shapes, overlaps)
 
         # Call solve_coloring with the new parameters
-        coloring = solver.solve_coloring(graph, algorithm=algorithm, use_optimizer=use_optimizer, num_layers=num_layers)
+        coloring = solver.solve_coloring(
+            graph, algorithm=algorithm, use_optimizer=use_optimizer, num_layers=num_layers
+        )
 
         # --- Identify and separate the largest shape (background) ---
         largest_shape_id = -1
@@ -697,9 +505,7 @@ def run_diastasis(
                 bumped = {**coloring, largest_shape_id: max(coloring.values()) + 1}
                 candidate = bumped
                 if algorithm != "force_k":
-                    rest_graph = graph.subgraph(
-                        node for node in graph.nodes() if node != largest_shape_id
-                    )
+                    rest_graph = graph.subgraph(node for node in graph.nodes() if node != largest_shape_id)
                     rest_coloring = solver.solve_coloring(
                         rest_graph, algorithm=algorithm, use_optimizer=use_optimizer
                     )
@@ -744,17 +550,14 @@ def run_diastasis(
         if flat_algorithm == "force_k" and flat_num_layers is not None:
             conflicts = flat_conflict_count(graph, coloring)
             summary += (
-                f"Flat force_k target: {flat_num_layers}\n"
-                f"Flat conflict pairs introduced: {conflicts}\n"
+                f"Flat force_k target: {flat_num_layers}\nFlat conflict pairs introduced: {conflicts}\n"
             )
     else:
         lower_bound = flat_layer_lower_bound(graph)
         if background_separated:
             # A dedicated background layer needs chi(rest) + 1 layers, so the
             # sound bound is max(clique(G), clique(G without background) + 1).
-            rest_graph = graph.subgraph(
-                node for node in graph.nodes() if node != largest_shape_id
-            )
+            rest_graph = graph.subgraph(node for node in graph.nodes() if node != largest_shape_id)
             constrained_bound = max(lower_bound, flat_layer_lower_bound(rest_graph) + 1)
             summary += f"Minimum proven required layers (dedicated background): {constrained_bound}\n"
             if num_colors == lower_bound:
@@ -773,8 +576,7 @@ def run_diastasis(
     total_area = sum((shape.geometry.area if shape.geometry else 0.0) for shape in shapes)
     tiny_threshold = canvas_area * 0.0002 if canvas_area > 0 else 0.01
     tiny_count = sum(
-        1 for shape in shapes
-        if shape.geometry is not None and shape.geometry.area < tiny_threshold
+        1 for shape in shapes if shape.geometry is not None and shape.geometry.area < tiny_threshold
     )
 
     if mode == "flat":
@@ -807,7 +609,4 @@ def run_diastasis(
         shapes, grouped_coloring, before = merge_same_color_fragments(shapes, grouped_coloring)
         summary += f"Same-color fragments merged: {before} -> {len(shapes)} shapes\n"
 
-    return shapes, grouped_coloring, summary, svg_width, svg_height # Updated return values
-
-
-
+    return shapes, grouped_coloring, summary, svg_width, svg_height  # Updated return values
