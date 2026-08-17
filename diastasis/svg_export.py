@@ -3,10 +3,11 @@ SVG export: writes processed layers back out with the highest fidelity
 available per shape — original path data, original native element markup,
 or a generated path, in that order.
 """
+
 import colorsys
 import os
 import re
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple, overload
 from xml.sax.saxutils import quoteattr
 
 from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
@@ -18,10 +19,20 @@ def _attr(value) -> str:
     """Quote and escape a value for safe use as an XML attribute."""
     return quoteattr(str(value))
 
+
 BASE_COLOR_MAP = {
-    0: "#FF0000", 1: "#00FF00", 2: "#0000FF", 3: "#FFFF00",
-    4: "#FF00FF", 5: "#00FFFF", 6: "#FFA500", 7: "#800080",
-    8: "#FFC0CB", 9: "#A52A2A", 10: "#808080", 11: "#000000",
+    0: "#FF0000",
+    1: "#00FF00",
+    2: "#0000FF",
+    3: "#FFFF00",
+    4: "#FF00FF",
+    5: "#00FFFF",
+    6: "#FFA500",
+    7: "#800080",
+    8: "#FFC0CB",
+    9: "#A52A2A",
+    10: "#808080",
+    11: "#000000",
 }
 
 # profile -> (path precision, include crop marks)
@@ -71,7 +82,9 @@ def polygon_to_svg_path_d(polygon, precision: int = 3) -> str:
         for interior_ring in poly.interiors:
             interior_coords = interior_ring.coords
             if interior_coords:
-                path_data.append(f"M {interior_coords[0][0]:.{precision}f} {interior_coords[0][1]:.{precision}f}")
+                path_data.append(
+                    f"M {interior_coords[0][0]:.{precision}f} {interior_coords[0][1]:.{precision}f}"
+                )
                 for x, y in interior_coords[1:]:
                     path_data.append(f"L {x:.{precision}f} {y:.{precision}f}")
                 path_data.append("Z")
@@ -83,14 +96,30 @@ def polygon_to_svg_path_d(polygon, precision: int = 3) -> str:
 def generate_crop_marks_svg(width: float, height: float, mark_length: float = 10) -> str:
     marks_svg = []
     # Top-left corner
-    marks_svg.append(f'<path d="M 0 {mark_length} L 0 0 L {mark_length} 0" stroke="black" stroke-width="0.5" fill="none"/>')
+    marks_svg.append(
+        f'<path d="M 0 {mark_length} L 0 0 L {mark_length} 0" stroke="black" stroke-width="0.5" fill="none"/>'
+    )
     # Top-right corner
-    marks_svg.append(f'<path d="M {width - mark_length} 0 L {width} 0 L {width} {mark_length}" stroke="black" stroke-width="0.5" fill="none"/>')
+    marks_svg.append(
+        f'<path d="M {width - mark_length} 0 L {width} 0 L {width} {mark_length}" stroke="black" stroke-width="0.5" fill="none"/>'
+    )
     # Bottom-left corner
-    marks_svg.append(f'<path d="M 0 {height - mark_length} L 0 {height} L {mark_length} {height}" stroke="black" stroke-width="0.5" fill="none"/>')
+    marks_svg.append(
+        f'<path d="M 0 {height - mark_length} L 0 {height} L {mark_length} {height}" stroke="black" stroke-width="0.5" fill="none"/>'
+    )
     # Bottom-right corner
-    marks_svg.append(f'<path d="M {width - mark_length} {height} L {width} {height} L {width} {height - mark_length}" stroke="black" stroke-width="0.5" fill="none"/>')
+    marks_svg.append(
+        f'<path d="M {width - mark_length} {height} L {width} {height} L {width} {height - mark_length}" stroke="black" stroke-width="0.5" fill="none"/>'
+    )
     return "\n".join(marks_svg)
+
+
+@overload
+def get_shape_fill(shape: Shape, fallback_color: str = ...) -> str: ...
+
+
+@overload
+def get_shape_fill(shape: Shape, fallback_color: None) -> Optional[str]: ...
 
 
 def get_shape_fill(shape: Shape, fallback_color: Optional[str] = "#CCCCCC") -> Optional[str]:
@@ -129,7 +158,7 @@ def shape_element_markup(shape: Shape, fill: str, path_precision: int = 3) -> Op
 
     native = getattr(shape, "native_shape", None)
     if native and native.get("attrs"):
-        attrs = " ".join(f'{name}={_attr(value)}' for name, value in native["attrs"].items())
+        attrs = " ".join(f"{name}={_attr(value)}" for name, value in native["attrs"].items())
         return f'<{native["tag"]} {attrs} fill={_attr(fill)} stroke="none"/>'
 
     path_d = polygon_to_svg_path_d(shape.geometry, precision=path_precision)
@@ -156,7 +185,7 @@ def build_layer_color_map(color_ids: Iterable[int]) -> Dict[int, str]:
         if color_id not in color_map:
             hue = (color_id * GOLDEN_RATIO_CONJUGATE) % 1.0
             r, g, b = colorsys.hsv_to_rgb(hue, LAYER_COLOR_SATURATION, LAYER_COLOR_VALUE)
-            color_map[color_id] = f'#{int(r * 255):02X}{int(g * 255):02X}{int(b * 255):02X}'
+            color_map[color_id] = f"#{int(r * 255):02X}{int(g * 255):02X}{int(b * 255):02X}"
     return color_map
 
 
@@ -232,7 +261,10 @@ def save_layers_to_files(
         os.makedirs(output_dir)
 
     content = build_layered_svg_string(
-        shapes, coloring, svg_width, svg_height,
+        shapes,
+        coloring,
+        svg_width,
+        svg_height,
         preserve_original_colors=preserve_original_colors,
         export_profile=export_profile,
     )
@@ -290,7 +322,9 @@ def save_layers_to_separate_files(
     return written
 
 
-def save_single_layer_file(shapes: List[Shape], output_filepath: str, svg_width: float, svg_height: float) -> str:
+def save_single_layer_file(
+    shapes: List[Shape], output_filepath: str, svg_width: float, svg_height: float
+) -> str:
     """
     Save all processed shapes into one single SVG layer.
     Useful for exporting clipped-visible results as one flat layer.

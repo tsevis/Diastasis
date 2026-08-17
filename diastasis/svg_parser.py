@@ -1,29 +1,31 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from lxml import etree
 import numpy as np
 from shapely.geometry import GeometryCollection, MultiPolygon, Polygon, Point, box
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 from shapely.validation import make_valid
-from shapely import affinity # Import affinity for scaling and translation
+from shapely import affinity  # Import affinity for scaling and translation
 from svgpathtools import parse_path, Line
 import math
 import re
+
 
 class Shape:
     def __init__(self, id, geometry, metadata, d_attribute=None, native_shape=None):
         self.id = id
         self.geometry = geometry
         self.metadata = metadata
-        self.d_attribute = d_attribute # Store d_attribute if provided
+        self.d_attribute = d_attribute  # Store d_attribute if provided
         # Original element tag/attrs for lossless export, valid only while
         # the geometry is untouched (pipelines that alter geometry drop it).
         self.native_shape = native_shape
 
+
 class SVGParser:
     # Points sampled per curved segment (Bezier/arc) when polygonizing paths.
     CURVE_SAMPLES = 16
-    TRANSFORM_PATTERN = re.compile(r'(matrix|translate|scale|rotate|skewX|skewY)\s*\(([^)]*)\)')
+    TRANSFORM_PATTERN = re.compile(r"(matrix|translate|scale|rotate|skewX|skewY)\s*\(([^)]*)\)")
 
     def __init__(self, include_strokes: bool = False):
         # When set, each shape's geometry becomes its painted footprint:
@@ -42,25 +44,25 @@ class SVGParser:
         """Parse a dimension string and convert to float, handling units."""
         if not dimension_str:
             return 0.0
-        
+
         # Convert to string if it's not already
         dimension_str = str(dimension_str).strip()
-        
+
         if not dimension_str:
             return 0.0
-        
+
         # Remove common units and convert to float
         # Handle px, pt, pc, mm, cm, in, em, ex, %
-        units_pattern = r'(px|pt|pc|mm|cm|in|em|ex|%)$'
-        
+        units_pattern = r"(px|pt|pc|mm|cm|in|em|ex|%)$"
+
         # Remove units from the end of the string
-        clean_value = re.sub(units_pattern, '', dimension_str, flags=re.IGNORECASE)
-        
+        clean_value = re.sub(units_pattern, "", dimension_str, flags=re.IGNORECASE)
+
         try:
             return float(clean_value)
         except ValueError:
             # If we still can't parse it, try to extract just the numeric part
-            numeric_match = re.match(r'([+-]?\d*\.?\d+)', clean_value)
+            numeric_match = re.match(r"([+-]?\d*\.?\d+)", clean_value)
             if numeric_match:
                 return float(numeric_match.group(1))
             return 0.0
@@ -70,9 +72,9 @@ class SVGParser:
         # Shape coordinates live in the viewBox coordinate system when one is
         # declared (width/height may carry physical units like mm), so the
         # viewBox must win for the canvas to match the analyzed geometry.
-        viewbox = root.get('viewBox')
+        viewbox = root.get("viewBox")
         if viewbox:
-            parts = re.split(r'[\s,]+', viewbox.strip())
+            parts = re.split(r"[\s,]+", viewbox.strip())
             if len(parts) == 4:
                 try:
                     width, height = float(parts[2]), float(parts[3])
@@ -81,8 +83,8 @@ class SVGParser:
                 except ValueError:
                     pass
 
-        width = self.parse_dimension(root.get('width', '0'))
-        height = self.parse_dimension(root.get('height', '0'))
+        width = self.parse_dimension(root.get("width", "0"))
+        height = self.parse_dimension(root.get("height", "0"))
 
         # If we still don't have dimensions, use reasonable defaults
         if width == 0:
@@ -94,21 +96,23 @@ class SVGParser:
 
     # Content inside these containers is not rendered directly; it only
     # appears where a <use> references it.
-    NON_RENDERED_CONTAINERS = {'defs', 'symbol', 'clipPath', 'mask', 'pattern', 'marker'}
+    NON_RENDERED_CONTAINERS = {"defs", "symbol", "clipPath", "mask", "pattern", "marker"}
 
     # Attributes captured for lossless native re-emission per element kind.
     NATIVE_ATTRS = {
-        'rect': ('x', 'y', 'width', 'height', 'rx', 'ry'),
-        'circle': ('cx', 'cy', 'r'),
-        'ellipse': ('cx', 'cy', 'rx', 'ry'),
-        'polygon': ('points',),
-        'polyline': ('points',),
+        "rect": ("x", "y", "width", "height", "rx", "ry"),
+        "circle": ("cx", "cy", "r"),
+        "ellipse": ("cx", "cy", "rx", "ry"),
+        "polygon": ("points",),
+        "polyline": ("points",),
     }
 
     def extract_shapes(self, root) -> List[Shape]:
         """Extracts shapes from SVG elements, resolving <use> references."""
-        shapes = []
-        for element in root.iter('{*}rect', '{*}circle', '{*}ellipse', '{*}polygon', '{*}polyline', '{*}path'):
+        shapes: List[Shape] = []
+        for element in root.iter(
+            "{*}rect", "{*}circle", "{*}ellipse", "{*}polygon", "{*}polyline", "{*}path"
+        ):
             if not self._is_rendered(element):
                 continue
             shape = self._element_to_shape(element, self.combined_transform(element), len(shapes))
@@ -116,7 +120,7 @@ class SVGParser:
                 shapes.append(shape)
 
         id_map = None
-        for use in root.iter('{*}use'):
+        for use in root.iter("{*}use"):
             if not self._is_rendered(use):
                 continue
             if id_map is None:
@@ -128,13 +132,13 @@ class SVGParser:
         return shapes
 
     @staticmethod
-    def _build_id_map(root) -> Dict[str, object]:
+    def _build_id_map(root) -> Dict[str, Any]:
         """Map id -> element once; first occurrence wins (getElementById semantics)."""
-        id_map = {}
+        id_map: Dict[str, Any] = {}
         for element in root.iter():
             if not isinstance(element.tag, str):
                 continue
-            element_id = element.get('id')
+            element_id = element.get("id")
             if element_id and element_id not in id_map:
                 id_map[element_id] = element
         return id_map
@@ -168,8 +172,8 @@ class SVGParser:
         # Original markup stays valid for export only while the geometry is
         # untouched, so exported elements always match the analyzed geometry.
         if not transformed and not stroked:
-            if localname == 'path':
-                d_attr = element.get('d', '')
+            if localname == "path":
+                d_attr = element.get("d", "")
             else:
                 native_shape = self._native_shape(element, localname)
         return Shape(
@@ -180,24 +184,24 @@ class SVGParser:
             native_shape=native_shape,
         )
 
-    def _resolve_use(self, id_map: Dict[str, object], use, shape_id: int) -> Optional[Shape]:
+    def _resolve_use(self, id_map: Dict[str, Any], use, shape_id: int) -> Optional[Shape]:
         """Instantiate a <use> reference to a basic shape element."""
-        href = use.get('href') or use.get('{http://www.w3.org/1999/xlink}href')
-        if not href or not href.startswith('#'):
+        href = use.get("href") or use.get("{http://www.w3.org/1999/xlink}href")
+        if not href or not href.startswith("#"):
             return None
         target = id_map.get(href[1:])
         if target is None:
             return None
-        if self._localname(target) not in ('rect', 'circle', 'ellipse', 'polygon', 'polyline', 'path'):
+        if self._localname(target) not in ("rect", "circle", "ellipse", "polygon", "polyline", "path"):
             return None
 
         # Effective transform: use's ancestor chain (includes use@transform),
         # then the x/y offset, then the target's own transform.
         offset = self._transform_matrix(
-            'translate',
-            [self.parse_dimension(use.get('x', 0)), self.parse_dimension(use.get('y', 0))],
+            "translate",
+            [self.parse_dimension(use.get("x", 0)), self.parse_dimension(use.get("y", 0))],
         )
-        matrix = self.combined_transform(use) @ offset @ self.parse_transform(target.get('transform') or '')
+        matrix = self.combined_transform(use) @ offset @ self.parse_transform(target.get("transform") or "")
         # The clone lives in the <use> element's shadow tree, so paint
         # properties inherit from the <use> element and its ancestors.
         return self._element_to_shape(target, matrix, shape_id, paint_context=use)
@@ -209,11 +213,11 @@ class SVGParser:
         Round joins are a close approximation of SVG's default miter joins;
         acute corners may extend slightly further when actually rendered.
         """
-        stroke = self._effective_paint(element, 'stroke', paint_context)
-        if not stroke or stroke.strip().lower() in ('none', 'transparent'):
+        stroke = self._effective_paint(element, "stroke", paint_context)
+        if not stroke or stroke.strip().lower() in ("none", "transparent"):
             return geometry, False
 
-        width_value = self._effective_paint(element, 'stroke-width', paint_context)
+        width_value = self._effective_paint(element, "stroke-width", paint_context)
         stroke_width = self.parse_dimension(width_value) if width_value is not None else 1.0
         if stroke_width <= 0:
             return geometry, False
@@ -235,8 +239,8 @@ class SVGParser:
 
     # Plain unitless numbers and point lists: the only attribute values the
     # analyzer interprets identically to an SVG renderer.
-    _PLAIN_NUMBER = re.compile(r'^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$')
-    _PLAIN_POINTS = re.compile(r'^[\s,0-9eE+.\-]+$')
+    _PLAIN_NUMBER = re.compile(r"^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$")
+    _PLAIN_POINTS = re.compile(r"^[\s,0-9eE+.\-]+$")
 
     def _native_shape(self, element, localname: str) -> Optional[Dict]:
         """Capture original tag/attrs for lossless export of basic shapes."""
@@ -247,23 +251,23 @@ class SVGParser:
         # Unit-suffixed values (10mm, 50%) are analyzed as bare numbers, so
         # re-emitting them verbatim would not match the analyzed geometry.
         for name, value in attrs.items():
-            pattern = self._PLAIN_POINTS if name == 'points' else self._PLAIN_NUMBER
+            pattern = self._PLAIN_POINTS if name == "points" else self._PLAIN_NUMBER
             if not pattern.match(value.strip()):
                 return None
-        tag = 'polygon' if localname == 'polyline' else localname
-        return {'tag': tag, 'attrs': attrs}
+        tag = "polygon" if localname == "polyline" else localname
+        return {"tag": tag, "attrs": attrs}
 
     @staticmethod
     def _localname(element) -> str:
         tag = element.tag
-        return tag.rsplit('}', 1)[-1] if isinstance(tag, str) else ''
+        return tag.rsplit("}", 1)[-1] if isinstance(tag, str) else ""
 
     def combined_transform(self, element) -> np.ndarray:
         """Compose the transform matrices of the element and all its ancestors."""
         matrices = []
         node = element
         while node is not None:
-            transform_attr = node.get('transform') if hasattr(node, 'get') else None
+            transform_attr = node.get("transform") if hasattr(node, "get") else None
             if transform_attr:
                 matrices.append(self.parse_transform(transform_attr))
             node = node.getparent()
@@ -280,37 +284,41 @@ class SVGParser:
         if not transform_str:
             return matrix
         for name, args_str in self.TRANSFORM_PATTERN.findall(transform_str):
-            args = [float(value) for value in re.split(r'[\s,]+', args_str.strip()) if value]
+            args = [float(value) for value in re.split(r"[\s,]+", args_str.strip()) if value]
             matrix = matrix @ self._transform_matrix(name, args)
         return matrix
 
     def _transform_matrix(self, name: str, args: List[float]) -> np.ndarray:
         try:
-            if name == 'matrix' and len(args) == 6:
+            if name == "matrix" and len(args) == 6:
                 a, b, c, d, e, f = args
                 return np.array([[a, c, e], [b, d, f], [0.0, 0.0, 1.0]])
-            if name == 'translate' and args:
+            if name == "translate" and args:
                 tx = args[0]
                 ty = args[1] if len(args) > 1 else 0.0
                 return np.array([[1.0, 0.0, tx], [0.0, 1.0, ty], [0.0, 0.0, 1.0]])
-            if name == 'scale' and args:
+            if name == "scale" and args:
                 sx = args[0]
                 sy = args[1] if len(args) > 1 else sx
                 return np.array([[sx, 0.0, 0.0], [0.0, sy, 0.0], [0.0, 0.0, 1.0]])
-            if name == 'rotate' and args:
+            if name == "rotate" and args:
                 angle = math.radians(args[0])
                 cos_a, sin_a = math.cos(angle), math.sin(angle)
                 rotation = np.array([[cos_a, -sin_a, 0.0], [sin_a, cos_a, 0.0], [0.0, 0.0, 1.0]])
                 if len(args) >= 3:
                     cx, cy = args[1], args[2]
-                    to_origin = self._transform_matrix('translate', [-cx, -cy])
-                    back = self._transform_matrix('translate', [cx, cy])
+                    to_origin = self._transform_matrix("translate", [-cx, -cy])
+                    back = self._transform_matrix("translate", [cx, cy])
                     return back @ rotation @ to_origin
                 return rotation
-            if name == 'skewX' and args:
-                return np.array([[1.0, math.tan(math.radians(args[0])), 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
-            if name == 'skewY' and args:
-                return np.array([[1.0, 0.0, 0.0], [math.tan(math.radians(args[0])), 1.0, 0.0], [0.0, 0.0, 1.0]])
+            if name == "skewX" and args:
+                return np.array(
+                    [[1.0, math.tan(math.radians(args[0])), 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+                )
+            if name == "skewY" and args:
+                return np.array(
+                    [[1.0, 0.0, 0.0], [math.tan(math.radians(args[0])), 1.0, 0.0], [0.0, 0.0, 1.0]]
+                )
         except (ValueError, IndexError):
             pass
         return np.identity(3)
@@ -330,46 +338,46 @@ class SVGParser:
     def convert_to_polygon(self, element) -> Polygon:
         """Converts an SVG element to a Shapely Polygon."""
         try:
-            if element.tag.endswith('rect'):
-                x = self.parse_dimension(element.get('x', 0))
-                y = self.parse_dimension(element.get('y', 0))
-                width = self.parse_dimension(element.get('width', 0))
-                height = self.parse_dimension(element.get('height', 0))
+            if element.tag.endswith("rect"):
+                x = self.parse_dimension(element.get("x", 0))
+                y = self.parse_dimension(element.get("y", 0))
+                width = self.parse_dimension(element.get("width", 0))
+                height = self.parse_dimension(element.get("height", 0))
                 if width == 0 or height == 0:
                     return None
                 rx, ry = self._rect_corner_radii(element, width, height)
                 if rx > 0 and ry > 0:
                     return self._rounded_rect_polygon(x, y, width, height, rx, ry)
                 return box(x, y, x + width, y + height)
-            elif element.tag.endswith('circle'):
-                cx = self.parse_dimension(element.get('cx', 0))
-                cy = self.parse_dimension(element.get('cy', 0))
-                r = self.parse_dimension(element.get('r', 0))
+            elif element.tag.endswith("circle"):
+                cx = self.parse_dimension(element.get("cx", 0))
+                cy = self.parse_dimension(element.get("cy", 0))
+                r = self.parse_dimension(element.get("r", 0))
                 if r == 0:
                     return None
                 return Point(cx, cy).buffer(r)
-            elif element.tag.endswith('ellipse'):
-                cx = self.parse_dimension(element.get('cx', 0))
-                cy = self.parse_dimension(element.get('cy', 0))
-                rx = self.parse_dimension(element.get('rx', 0))
-                ry = self.parse_dimension(element.get('ry', 0))
+            elif element.tag.endswith("ellipse"):
+                cx = self.parse_dimension(element.get("cx", 0))
+                cy = self.parse_dimension(element.get("cy", 0))
+                rx = self.parse_dimension(element.get("rx", 0))
+                ry = self.parse_dimension(element.get("ry", 0))
                 if rx == 0 or ry == 0:
                     return None
                 # Correct approximation for ellipse: create a unit circle, scale it, then translate
                 # Use affinity.scale for scaling with origin
-                unit_circle = Point(0, 0).buffer(1) # Create a unit circle centered at origin
-                scaled_ellipse = affinity.scale(unit_circle, xfact=rx, yfact=ry, origin=(0,0))
+                unit_circle = Point(0, 0).buffer(1)  # Create a unit circle centered at origin
+                scaled_ellipse = affinity.scale(unit_circle, xfact=rx, yfact=ry, origin=(0, 0))
                 # Translate to the correct center
                 return affinity.translate(scaled_ellipse, xoff=cx, yoff=cy)
-            elif element.tag.endswith('polygon') or element.tag.endswith('polyline'):
+            elif element.tag.endswith("polygon") or element.tag.endswith("polyline"):
                 # SVG fills a polyline as if it were closed, so both map to
                 # the same polygon geometry.
-                points = self._parse_points(element.get('points', ''))
+                points = self._parse_points(element.get("points", ""))
                 if points is None or len(points) < 3:
                     return None
                 return Polygon(points)
-            elif element.tag.endswith('path'):
-                path_data = element.get('d', '')
+            elif element.tag.endswith("path"):
+                path_data = element.get("d", "")
                 if not path_data.strip():
                     return None
                 try:
@@ -383,8 +391,8 @@ class SVGParser:
 
     def _rect_corner_radii(self, element, width: float, height: float) -> Tuple[float, float]:
         """Resolve rect rx/ry per SVG rules: each defaults to the other, clamped to half-size."""
-        rx_attr = element.get('rx')
-        ry_attr = element.get('ry')
+        rx_attr = element.get("rx")
+        ry_attr = element.get("ry")
         rx = self.parse_dimension(rx_attr) if rx_attr is not None else None
         ry = self.parse_dimension(ry_attr) if ry_attr is not None else None
         # SVG treats a negative radius as unspecified ("auto").
@@ -392,26 +400,34 @@ class SVGParser:
             rx = None
         if ry is not None and ry < 0:
             ry = None
-        if rx is None and ry is None:
-            return 0.0, 0.0
+        # Each radius falls back to the other when unspecified ("auto");
+        # if neither is set the rect has square corners.
         if rx is None:
+            if ry is None:
+                return 0.0, 0.0
             rx = ry
-        if ry is None:
+        elif ry is None:
             ry = rx
         return max(0.0, min(rx, width / 2)), max(0.0, min(ry, height / 2))
 
     def _rounded_rect_polygon(
-        self, x: float, y: float, width: float, height: float, rx: float, ry: float,
+        self,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+        rx: float,
+        ry: float,
         corner_samples: int = 9,
     ) -> Polygon:
         """Build a rounded rectangle with sampled quarter-ellipse corners."""
         # Corner arc centers and their start angles, walking the outline in
         # one consistent direction (angles in the ellipse parameterization).
         corners = [
-            (x + width - rx, y + height - ry, 0.0),   # bottom-right
-            (x + rx, y + height - ry, 90.0),          # bottom-left
-            (x + rx, y + ry, 180.0),                  # top-left
-            (x + width - rx, y + ry, 270.0),          # top-right
+            (x + width - rx, y + height - ry, 0.0),  # bottom-right
+            (x + rx, y + height - ry, 90.0),  # bottom-left
+            (x + rx, y + ry, 180.0),  # top-left
+            (x + width - rx, y + ry, 270.0),  # top-right
         ]
         coords = []
         for cx, cy, start_deg in corners:
@@ -425,7 +441,7 @@ class SVGParser:
 
     def _parse_points(self, points_str: str) -> Optional[List[Tuple[float, float]]]:
         """Parse a polygon/polyline points attribute into coordinate pairs."""
-        values = [v for v in re.split(r'[\s,]+', points_str.strip()) if v]
+        values = [v for v in re.split(r"[\s,]+", points_str.strip()) if v]
         if len(values) < 2 or len(values) % 2 != 0:
             return None
         try:
@@ -437,12 +453,12 @@ class SVGParser:
 
     def _element_fill_rule(self, element) -> str:
         """Read the element's fill-rule (attribute or style); SVG defaults to nonzero."""
-        rule = element.get('fill-rule')
+        rule = element.get("fill-rule")
         if not rule:
-            style = element.get('style') or ''
-            match = re.search(r'(?:^|;)\s*fill-rule\s*:\s*([^;]+)', style, flags=re.IGNORECASE)
+            style = element.get("style") or ""
+            match = re.search(r"(?:^|;)\s*fill-rule\s*:\s*([^;]+)", style, flags=re.IGNORECASE)
             rule = match.group(1) if match else None
-        return 'evenodd' if rule and rule.strip().lower() == 'evenodd' else 'nonzero'
+        return "evenodd" if rule and rule.strip().lower() == "evenodd" else "nonzero"
 
     def path_to_polygon(self, path_data: str, fill_rule: str = "nonzero") -> Optional[BaseGeometry]:
         """
@@ -542,20 +558,20 @@ class SVGParser:
     def preserve_metadata(self, element, paint_context=None) -> Dict:
         """Preserves relevant metadata, resolving inherited paint properties."""
         return {
-            'style': element.get('style'),
-            'transform': element.get('transform'),
-            'id': element.get('id'),
-            'fill': self._effective_paint(element, 'fill', paint_context),
-            'fill-rule': element.get('fill-rule'),
-            'stroke': self._effective_paint(element, 'stroke', paint_context),
-            'stroke-width': self._effective_paint(element, 'stroke-width', paint_context),
+            "style": element.get("style"),
+            "transform": element.get("transform"),
+            "id": element.get("id"),
+            "fill": self._effective_paint(element, "fill", paint_context),
+            "fill-rule": element.get("fill-rule"),
+            "stroke": self._effective_paint(element, "stroke", paint_context),
+            "stroke-width": self._effective_paint(element, "stroke-width", paint_context),
         }
 
     def _style_property(self, style: Optional[str], prop: str) -> Optional[str]:
         """Read one property value out of an inline style attribute."""
         if not style:
             return None
-        match = re.search(rf'(?:^|;)\s*{prop}\s*:\s*([^;]+)', style, flags=re.IGNORECASE)
+        match = re.search(rf"(?:^|;)\s*{prop}\s*:\s*([^;]+)", style, flags=re.IGNORECASE)
         return match.group(1).strip() if match else None
 
     def _own_paint(self, element, prop: str) -> Optional[str]:
@@ -563,8 +579,8 @@ class SVGParser:
         The element's own value for a paint property. Per the CSS cascade,
         the inline style overrides the presentation attribute.
         """
-        value = self._style_property(element.get('style'), prop) or element.get(prop)
-        if value and value.strip().lower() == 'inherit':
+        value = self._style_property(element.get("style"), prop) or element.get(prop)
+        if value and value.strip().lower() == "inherit":
             return None
         return value
 

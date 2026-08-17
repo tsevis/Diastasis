@@ -23,7 +23,7 @@ class GraphSolver:
         "random_sequential",
         "connected_sequential_bfs",
         "connected_sequential_dfs",
-        "force_k"
+        "force_k",
     ]
 
     # Graphs above these sizes skip the more expensive portfolio members.
@@ -40,7 +40,7 @@ class GraphSolver:
         """Builds a graph where nodes are shapes and edges represent overlaps with weights."""
         graph = nx.Graph()
         for i in range(len(shapes)):
-            graph.add_node(i, size=shapes[i].geometry.area) # Add node size for sorting
+            graph.add_node(i, size=shapes[i].geometry.area)  # Add node size for sorting
 
         for i, j, overlap_area in overlaps:
             graph.add_edge(i, j, weight=overlap_area)
@@ -48,7 +48,11 @@ class GraphSolver:
         return graph
 
     def solve_coloring(
-        self, graph: nx.Graph, algorithm: str = "minimum_layers", use_optimizer: bool = False, num_layers: int = None
+        self,
+        graph: nx.Graph,
+        algorithm: str = "minimum_layers",
+        use_optimizer: bool = False,
+        num_layers: Optional[int] = None,
     ) -> Dict[int, int]:
         """
         Colors the graph using the specified algorithm.
@@ -65,8 +69,7 @@ class GraphSolver:
         """
         if algorithm not in self.AVAILABLE_ALGORITHMS:
             raise ValueError(
-                f"Unknown coloring algorithm: {algorithm}. "
-                f"Available options are: {self.AVAILABLE_ALGORITHMS}"
+                f"Unknown coloring algorithm: {algorithm}. Available options are: {self.AVAILABLE_ALGORITHMS}"
             )
 
         if algorithm == "force_k":
@@ -105,10 +108,7 @@ class GraphSolver:
         if graph.number_of_edges() == 0:
             return {node: 0 for node in graph.nodes()}
 
-        if (
-            graph.number_of_nodes() > self.HUGE_GRAPH_NODES
-            or graph.number_of_edges() > self.HUGE_GRAPH_EDGES
-        ):
+        if graph.number_of_nodes() > self.HUGE_GRAPH_NODES or graph.number_of_edges() > self.HUGE_GRAPH_EDGES:
             return self._normalize_colors(nx.greedy_color(graph, strategy="DSATUR"))
 
         is_large = (
@@ -128,10 +128,7 @@ class GraphSolver:
                 stall_limit=6 if is_large else 15,
             )
 
-        if (
-            self.get_num_layers(best) > lower_bound
-            and graph.number_of_nodes() <= self.EXACT_NODE_LIMIT
-        ):
+        if self.get_num_layers(best) > lower_bound and graph.number_of_nodes() <= self.EXACT_NODE_LIMIT:
             best = self._exact_branch_and_bound(graph, best, lower_bound)
 
         return self._normalize_colors(best)
@@ -192,7 +189,9 @@ class GraphSolver:
                 best = coloring
             if self.get_num_layers(best) <= lower_bound:
                 break
-        return best
+        # No candidate strategy produced a coloring (e.g. an empty graph):
+        # an empty mapping is the correct "nothing to color" answer.
+        return best if best is not None else {}
 
     def _portfolio_candidates(self, graph: nx.Graph, is_large: bool):
         # On large graphs run the near-linear strategies first: with a tight
@@ -348,9 +347,7 @@ class GraphSolver:
             class_sizes[color] += 1
         remap = {
             old_color: new_color
-            for new_color, old_color in enumerate(
-                sorted(class_sizes, key=lambda c: (-class_sizes[c], c))
-            )
+            for new_color, old_color in enumerate(sorted(class_sizes, key=lambda c: (-class_sizes[c], c)))
         }
         return {node: remap[color] for node, color in coloring.items()}
 
@@ -366,11 +363,11 @@ class GraphSolver:
         Returns:
             A dictionary mapping node IDs to their assigned layer.
         """
-        coloring = {}
-        layers = [[] for _ in range(k)]
+        coloring: Dict[int, int] = {}
+        layers: List[List[int]] = [[] for _ in range(k)]
 
         # Sort nodes by size (area) in descending order as a heuristic
-        sorted_nodes = sorted(graph.nodes(data=True), key=lambda x: x[1].get('size', 0), reverse=True)
+        sorted_nodes = sorted(graph.nodes(data=True), key=lambda x: x[1].get("size", 0), reverse=True)
 
         for node, _ in sorted_nodes:
             costs = np.zeros(k)
@@ -378,11 +375,11 @@ class GraphSolver:
                 cost = 0
                 for neighbor in graph.neighbors(node):
                     if neighbor in layers[i]:
-                        cost += graph[node][neighbor]['weight']
+                        cost += graph[node][neighbor]["weight"]
                 costs[i] = cost
 
             # Assign node to the layer with the minimum cost
-            best_layer = np.argmin(costs)
+            best_layer = int(np.argmin(costs))
             layers[best_layer].append(node)
             coloring[node] = best_layer
 
