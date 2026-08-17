@@ -3,8 +3,10 @@ Pixel-level fidelity check: a clipped (visible-boundaries) export must
 render the same image as the input file. Skipped when cairosvg cannot
 load its native cairo library (e.g. in CI without the gui extras).
 """
+
 import io
 
+import numpy as np
 import pytest
 
 from diastasis.main import run_diastasis, save_single_layer_file
@@ -13,6 +15,7 @@ from diastasis.main import run_diastasis, save_single_layer_file
 def _load_cairosvg():
     try:
         import cairosvg
+
         cairosvg.svg2png(bytestring=b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>')
         return cairosvg
     except (ImportError, OSError):
@@ -25,6 +28,7 @@ pytestmark = pytest.mark.skipif(cairosvg is None, reason="cairosvg unavailable")
 
 def _render(svg_path: str, size: int = 200):
     from PIL import Image
+
     png = cairosvg.svg2png(url=svg_path, output_width=size, output_height=size)
     return Image.open(io.BytesIO(png)).convert("RGB")
 
@@ -48,11 +52,12 @@ def test_clipped_single_layer_renders_like_input(tmp_path):
     image_in = _render(str(svg_in))
     image_out = _render(str(svg_out))
 
+    # Compared via numpy (a core dependency) rather than Image.getdata(),
+    # which Pillow deprecated for removal in 14.0.
+    pixels_in = np.asarray(image_in, dtype=np.int16)
+    pixels_out = np.asarray(image_out, dtype=np.int16)
     total = image_in.width * image_in.height
-    differing = sum(
-        1
-        for p_in, p_out in zip(image_in.getdata(), image_out.getdata())
-        if max(abs(a - b) for a, b in zip(p_in, p_out)) > 40
-    )
+    channel_delta = np.abs(pixels_in - pixels_out).max(axis=2)
+    differing = int(np.count_nonzero(channel_delta > 40))
     # Antialiasing along clip seams differs slightly; the artwork must not.
     assert differing / total < 0.03, f"{differing}/{total} pixels differ"
