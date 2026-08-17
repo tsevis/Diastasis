@@ -223,10 +223,14 @@ def test_clip_shapes_to_visible_boundaries_handles_invalid_geometry():
 
 
 def test_get_shape_fill_prefers_metadata_fill_then_style():
-    shape_with_fill = Shape(id=0, geometry=box(0, 0, 1, 1), metadata={"fill": "#112233", "style": "fill:#ff0000;"})
+    shape_with_fill = Shape(
+        id=0, geometry=box(0, 0, 1, 1), metadata={"fill": "#112233", "style": "fill:#ff0000;"}
+    )
     assert get_shape_fill(shape_with_fill, fallback_color="#000000") == "#112233"
 
-    shape_with_style = Shape(id=1, geometry=box(0, 0, 1, 1), metadata={"style": "stroke:#000; fill: rgb(10,20,30);"})
+    shape_with_style = Shape(
+        id=1, geometry=box(0, 0, 1, 1), metadata={"style": "stroke:#000; fill: rgb(10,20,30);"}
+    )
     assert get_shape_fill(shape_with_style, fallback_color="#000000") == "rgb(10,20,30)"
 
     shape_none = Shape(id=2, geometry=box(0, 0, 1, 1), metadata={"fill": "none", "style": "fill:none;"})
@@ -271,6 +275,7 @@ def test_save_layers_to_files_web_profile_omits_crop_marks(tmp_path):
     content = (tmp_path / "web_profile_test_layered.svg").read_text()
     assert 'data-export-profile="Web"' in content
     assert 'id="Crop_Marks"' not in content
+
 
 def test_run_diastasis_reports_performance_mode_in_summary(tmp_path):
     svg_content = """
@@ -367,14 +372,13 @@ def test_run_diastasis_recolors_rest_when_background_forced_separate(tmp_path):
     assert "Layer count is provably optimal" in summary
     # The background (largest shape) must be alone on its layer.
     largest_id = max(range(len(shapes)), key=lambda i: shapes[i].geometry.area)
-    background_layers = [
-        color for color, ids in grouped_coloring.items() if largest_id in ids
-    ]
+    background_layers = [color for color, ids in grouped_coloring.items() if largest_id in ids]
     assert len(grouped_coloring[background_layers[0]]) == 1
 
 
 def test_drop_sliver_fragments_removes_small_pieces():
     from diastasis.main import drop_sliver_fragments
+
     shapes = [
         Shape(id=0, geometry=box(0, 0, 50, 50), metadata={}),
         Shape(id=1, geometry=box(60, 60, 60.05, 60.05), metadata={}),  # sliver
@@ -401,9 +405,7 @@ def test_run_diastasis_flat_sliver_cleanup(tmp_path):
     svg_file.write_text(svg_content)
 
     shapes_kept, _, _, _, _ = run_diastasis(str(svg_file), mode="flat")
-    shapes_clean, _, summary, _, _ = run_diastasis(
-        str(svg_file), mode="flat", min_fragment_ratio=0.002
-    )
+    shapes_clean, _, summary, _, _ = run_diastasis(str(svg_file), mode="flat", min_fragment_ratio=0.002)
 
     assert len(shapes_kept) == 2
     assert len(shapes_clean) == 1
@@ -412,23 +414,24 @@ def test_run_diastasis_flat_sliver_cleanup(tmp_path):
 
 def test_separate_by_color_groups_and_merges():
     from diastasis.main import separate_by_color
+
     shapes = [
         Shape(id=0, geometry=box(0, 0, 10, 10), metadata={"fill": "#ff0000"}),
-        Shape(id=1, geometry=box(20, 0, 30, 10), metadata={"fill": "red"}),       # == shape 0
-        Shape(id=2, geometry=box(40, 0, 50, 10), metadata={"fill": "#fa0000"}),   # near red
+        Shape(id=1, geometry=box(20, 0, 30, 10), metadata={"fill": "red"}),  # == shape 0
+        Shape(id=2, geometry=box(40, 0, 50, 10), metadata={"fill": "#fa0000"}),  # near red
         Shape(id=3, geometry=box(60, 0, 70, 10), metadata={"fill": "#0000ff"}),
         Shape(id=4, geometry=box(80, 0, 90, 10), metadata={"fill": "none"}),
     ]
 
     coloring, reps, unresolved = separate_by_color(shapes, tolerance=0.0)
-    assert coloring[0] == coloring[1]           # identical reds share a plate
-    assert coloring[2] != coloring[0]           # near-red is its own plate at tol 0
+    assert coloring[0] == coloring[1]  # identical reds share a plate
+    assert coloring[2] != coloring[0]  # near-red is its own plate at tol 0
     assert coloring[3] not in (coloring[0], coloring[2])
     assert unresolved == 1
-    assert reps[coloring[4]] is None            # no-fill plate has no ink
+    assert reps[coloring[4]] is None  # no-fill plate has no ink
 
     merged, _, _ = separate_by_color(shapes, tolerance=10.0)
-    assert merged[2] == merged[0]               # near-red now merges into the red plate
+    assert merged[2] == merged[0]  # near-red now merges into the red plate
 
 
 def test_run_diastasis_color_mode(tmp_path):
@@ -482,9 +485,7 @@ def test_run_diastasis_color_mode_with_clipping_preserves_fills(tmp_path):
     svg_file = tmp_path / "clip_color.svg"
     svg_file.write_text(svg_content)
 
-    shapes, grouped, summary, _, _ = run_diastasis(
-        str(svg_file), mode="color", clip_visible_boundaries=True
-    )
+    shapes, grouped, summary, _, _ = run_diastasis(str(svg_file), mode="color", clip_visible_boundaries=True)
     assert len(grouped) == 2
     assert "Visible boundary clipping: Enabled" in summary
     assert "#0000FF" in summary and "#FF0000" in summary
@@ -496,6 +497,7 @@ def test_run_diastasis_color_mode_with_clipping_preserves_fills(tmp_path):
 
 def test_merge_same_color_fragments_unions_only_matching_fills():
     from diastasis.main import merge_same_color_fragments
+
     shapes = [
         Shape(id=0, geometry=box(0, 0, 10, 10), metadata={"fill": "#ff0000"}),
         Shape(id=1, geometry=box(10, 0, 20, 10), metadata={"fill": "#ff0000"}),  # touches 0
@@ -505,7 +507,7 @@ def test_merge_same_color_fragments_unions_only_matching_fills():
     assert before == 3
     assert len(new_shapes) == 2
     areas = sorted(s.geometry.area for s in new_shapes)
-    assert areas == [100.0, 200.0]          # reds merged (200), blue intact (100)
+    assert areas == [100.0, 200.0]  # reds merged (200), blue intact (100)
     fills = {s.metadata["fill"] for s in new_shapes}
     assert fills == {"#ff0000", "#0000ff"}
     # New grouping still references valid indices into new_shapes.
@@ -515,6 +517,7 @@ def test_merge_same_color_fragments_unions_only_matching_fills():
 
 def test_merge_fragments_keeps_different_layers_separate():
     from diastasis.main import merge_same_color_fragments
+
     shapes = [
         Shape(id=0, geometry=box(0, 0, 10, 10), metadata={"fill": "#ff0000"}),
         Shape(id=1, geometry=box(10, 0, 20, 10), metadata={"fill": "#ff0000"}),  # touches 0, other layer
@@ -545,6 +548,7 @@ def test_run_diastasis_color_mode_merge_produces_one_path_per_plate(tmp_path):
 
 def test_merge_fragments_canonicalizes_color_notation():
     from diastasis.main import merge_same_color_fragments
+
     # Same color, three different textual notations, all touching on one layer.
     shapes = [
         Shape(id=0, geometry=box(0, 0, 10, 10), metadata={"fill": "#FF0000"}),
@@ -560,8 +564,9 @@ def test_merge_fragments_canonicalizes_color_notation():
 
 def test_merge_fragments_copies_metadata_not_aliases():
     from diastasis.main import merge_same_color_fragments
+
     original_meta = {"fill": "#00ff00", "id": "orig"}
     shapes = [Shape(id=0, geometry=box(0, 0, 10, 10), metadata=original_meta)]
     new_shapes, _, _ = merge_same_color_fragments(shapes, {0: [0]})
     new_shapes[0].metadata["id"] = "mutated"
-    assert original_meta["id"] == "orig"   # source dict untouched
+    assert original_meta["id"] == "orig"  # source dict untouched

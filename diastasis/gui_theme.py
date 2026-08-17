@@ -2,6 +2,7 @@
 Theme handling for the Diastasis GUI: platform ttk theme selection and
 light/dark appearance toggling. Kept separate from gui.py for cohesion.
 """
+
 import platform
 import tkinter as tk
 from tkinter import ttk
@@ -63,9 +64,7 @@ def apply_non_macos_theme(app) -> None:
     )
 
     app.preview_canvas.configure(bg=colors["canvas"])
-    app.results_text.configure(
-        bg=colors["text_bg"], fg=colors["text_fg"], insertbackground=colors["text_fg"]
-    )
+    app.results_text.configure(bg=colors["text_bg"], fg=colors["text_fg"], insertbackground=colors["text_fg"])
 
 
 def toggle_appearance(app) -> None:

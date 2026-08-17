@@ -21,7 +21,9 @@ def test_parse_color_valid_forms(value, expected):
     assert parse_color(value) == expected
 
 
-@pytest.mark.parametrize("value", [None, "", "none", "transparent", "notacolor", "#12", "rgb(1,2)", "#gggggg"])
+@pytest.mark.parametrize(
+    "value", [None, "", "none", "transparent", "notacolor", "#12", "rgb(1,2)", "#gggggg"]
+)
 def test_parse_color_rejects_unusable(value):
     assert parse_color(value) is None
 
@@ -34,5 +36,5 @@ def test_color_distance_and_hex_roundtrip():
 
 
 def test_parse_color_hex_with_alpha_drops_alpha():
-    assert parse_color("#ff000080") == (255, 0, 0)   # #rrggbbaa
-    assert parse_color("#f00c") == (255, 0, 0)       # #rgba
+    assert parse_color("#ff000080") == (255, 0, 0)  # #rrggbbaa
+    assert parse_color("#f00c") == (255, 0, 0)  # #rgba

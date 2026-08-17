@@ -2,6 +2,7 @@ import pytest
 from diastasis.svg_parser import SVGParser, Shape
 from shapely.geometry import Polygon, Point, box
 
+
 # Create a dummy SVG file for testing
 @pytest.fixture
 def dummy_svg_file(tmp_path):
@@ -18,6 +19,7 @@ def dummy_svg_file(tmp_path):
     file_path.write_text(svg_content)
     return str(file_path)
 
+
 def test_load_svg(dummy_svg_file):
     parser = SVGParser()
     shapes, width, height = parser.load_svg(dummy_svg_file)
@@ -25,10 +27,12 @@ def test_load_svg(dummy_svg_file):
     assert width == 200
     assert height == 200
 
+
 def test_extract_shapes(dummy_svg_file):
     parser = SVGParser()
     # Load the SVG to get the root element
     from lxml import etree
+
     tree = etree.parse(dummy_svg_file)
     root = tree.getroot()
     shapes = parser.extract_shapes(root)
@@ -38,69 +42,81 @@ def test_extract_shapes(dummy_svg_file):
     for shape in shapes:
         assert isinstance(shape, Shape)
         assert isinstance(shape.geometry, Polygon)
-        assert 'id' in shape.metadata
+        assert "id" in shape.metadata
+
 
 def test_convert_to_polygon_rect():
     parser = SVGParser()
     from lxml import etree
+
     element = etree.fromstring('<rect x="0" y="0" width="10" height="10" />')
     polygon = parser.convert_to_polygon(element)
     assert isinstance(polygon, Polygon)
     assert polygon.area == 100
 
+
 def test_convert_to_polygon_circle():
     parser = SVGParser()
     from lxml import etree
+
     element = etree.fromstring('<circle cx="0" cy="0" r="10" />')
     polygon = parser.convert_to_polygon(element)
     assert isinstance(polygon, Polygon)
     # Check if it's a reasonable approximation of a circle
-    assert polygon.area > 300 and polygon.area < 320 # pi * r^2 = 314.15
+    assert polygon.area > 300 and polygon.area < 320  # pi * r^2 = 314.15
+
 
 def test_convert_to_polygon_ellipse():
     parser = SVGParser()
     from lxml import etree
+
     element = etree.fromstring('<ellipse cx="0" cy="0" rx="10" ry="5" />')
     polygon = parser.convert_to_polygon(element)
     assert isinstance(polygon, Polygon)
     # Check if it's a reasonable approximation of an ellipse
-    assert polygon.area > 150 and polygon.area < 160 # pi * rx * ry = 157.07
+    assert polygon.area > 150 and polygon.area < 160  # pi * rx * ry = 157.07
+
 
 def test_convert_to_polygon_polygon():
     parser = SVGParser()
     from lxml import etree
+
     element = etree.fromstring('<polygon points="0,0 10,0 5,10" />')
     polygon = parser.convert_to_polygon(element)
     assert isinstance(polygon, Polygon)
     assert polygon.area == 50
 
+
 def test_convert_to_polygon_path():
     parser = SVGParser()
     from lxml import etree
+
     element = etree.fromstring('<path d="M 0 0 L 10 0 L 5 10 Z" />')
     polygon = parser.convert_to_polygon(element)
     assert isinstance(polygon, Polygon)
     assert polygon.area == 50
 
+
 def test_preserve_metadata():
     parser = SVGParser()
     from lxml import etree
-    element = etree.fromstring('<rect id="test_id" style="fill:red;" transform="translate(10,10)" fill="#123456" stroke="#654321" />')
+
+    element = etree.fromstring(
+        '<rect id="test_id" style="fill:red;" transform="translate(10,10)" fill="#123456" stroke="#654321" />'
+    )
     metadata = parser.preserve_metadata(element)
-    assert metadata['id'] == 'test_id'
-    assert metadata['style'] == 'fill:red;'
-    assert metadata['transform'] == 'translate(10,10)'
+    assert metadata["id"] == "test_id"
+    assert metadata["style"] == "fill:red;"
+    assert metadata["transform"] == "translate(10,10)"
     # Per the CSS cascade, the inline style's fill overrides the attribute.
-    assert metadata['fill'] == 'red'
-    assert metadata['stroke'] == '#654321'
+    assert metadata["fill"] == "red"
+    assert metadata["stroke"] == "#654321"
 
 
 def test_path_with_hole_produces_donut_geometry():
     parser = SVGParser()
     # Inner ring wound opposite to the outer ring: a hole under nonzero (default).
-    geometry = parser.path_to_polygon(
-        "M 0 0 L 100 0 L 100 100 L 0 100 Z M 25 25 L 25 75 L 75 75 L 75 25 Z"
-    )
+    geometry = parser.path_to_polygon("M 0 0 L 100 0 L 100 100 L 0 100 Z M 25 25 L 25 75 L 75 75 L 75 25 Z")
     # Outer 100x100 minus inner 50x50 hole.
     assert abs(geometry.area - 7500) < 1
 
@@ -108,9 +124,7 @@ def test_path_with_hole_produces_donut_geometry():
 def test_path_nonzero_same_winding_subpaths_union():
     parser = SVGParser()
     # Two overlapping same-winding squares: nonzero fills the union (no hole).
-    geometry = parser.path_to_polygon(
-        "M 0 0 L 10 0 L 10 10 L 0 10 Z M 5 5 L 15 5 L 15 15 L 5 15 Z"
-    )
+    geometry = parser.path_to_polygon("M 0 0 L 10 0 L 10 10 L 0 10 Z M 5 5 L 15 5 L 15 15 L 5 15 Z")
     assert abs(geometry.area - 175) < 1
 
 
@@ -125,10 +139,10 @@ def test_path_evenodd_same_winding_subpaths_punch_hole():
 
 def test_fill_rule_read_from_element_attribute():
     from lxml import etree
+
     parser = SVGParser()
     element = etree.fromstring(
-        '<path d="M 0 0 L 100 0 L 100 100 L 0 100 Z M 25 25 L 75 25 L 75 75 L 25 75 Z" '
-        'fill-rule="evenodd" />'
+        '<path d="M 0 0 L 100 0 L 100 100 L 0 100 Z M 25 25 L 75 25 L 75 75 L 25 75 Z" fill-rule="evenodd" />'
     )
     geometry = parser.convert_to_polygon(element)
     assert abs(geometry.area - 7500) < 1
@@ -136,9 +150,7 @@ def test_fill_rule_read_from_element_attribute():
 
 def test_path_with_disjoint_subpaths_keeps_both_contours():
     parser = SVGParser()
-    geometry = parser.path_to_polygon(
-        "M 0 0 L 10 0 L 10 10 L 0 10 Z M 50 50 L 60 50 L 60 60 L 50 60 Z"
-    )
+    geometry = parser.path_to_polygon("M 0 0 L 10 0 L 10 10 L 0 10 Z M 50 50 L 60 50 L 60 60 L 50 60 Z")
     assert abs(geometry.area - 200) < 1
 
 
@@ -216,6 +228,7 @@ def test_viewbox_defines_coordinate_canvas(tmp_path):
 
 def test_polyline_is_filled_as_closed_polygon():
     from lxml import etree
+
     parser = SVGParser()
     element = etree.fromstring('<polyline points="0,0 10,0 10,10 0,10" />')
     polygon = parser.convert_to_polygon(element)
@@ -274,33 +287,36 @@ def test_native_shape_captured_for_untransformed_elements(tmp_path):
 
     parser = SVGParser()
     shapes, _, _ = parser.load_svg(str(file_path))
-    assert shapes[0].native_shape == {'tag': 'circle', 'attrs': {'cx': '20', 'cy': '20', 'r': '10'}}
+    assert shapes[0].native_shape == {"tag": "circle", "attrs": {"cx": "20", "cy": "20", "r": "10"}}
     # Transformed elements must not carry native markup.
     assert shapes[1].native_shape is None
     # Rounded rects re-emit natively now that their geometry is analyzed correctly.
     assert shapes[2].native_shape == {
-        'tag': 'rect',
-        'attrs': {'x': '0', 'y': '0', 'width': '10', 'height': '10', 'rx': '3'},
+        "tag": "rect",
+        "attrs": {"x": "0", "y": "0", "width": "10", "height": "10", "rx": "3"},
     }
 
 
 def test_native_shape_skipped_for_unit_suffixed_attributes():
     from lxml import etree
+
     parser = SVGParser()
     element = etree.fromstring('<rect x="0" y="0" width="10mm" height="10mm" />')
-    assert parser._native_shape(element, 'rect') is None
+    assert parser._native_shape(element, "rect") is None
 
 
 def test_native_shape_kept_for_zero_corner_radius():
     from lxml import etree
+
     parser = SVGParser()
     element = etree.fromstring('<rect x="0" y="0" width="10" height="10" rx="0" />')
-    native = parser._native_shape(element, 'rect')
-    assert native == {'tag': 'rect', 'attrs': {'x': '0', 'y': '0', 'width': '10', 'height': '10', 'rx': '0'}}
+    native = parser._native_shape(element, "rect")
+    assert native == {"tag": "rect", "attrs": {"x": "0", "y": "0", "width": "10", "height": "10", "rx": "0"}}
 
 
 def test_rounded_rect_geometry_matches_expected_area():
     from lxml import etree
+
     parser = SVGParser()
     element = etree.fromstring('<rect x="0" y="0" width="100" height="60" rx="10" />')
     polygon = parser.convert_to_polygon(element)
@@ -309,12 +325,13 @@ def test_rounded_rect_geometry_matches_expected_area():
     assert abs(polygon.area - expected) < 5
     # The bounding box is unchanged; corners are cut.
     assert polygon.bounds == (0, 0, 100, 60)
-    assert not polygon.contains(Point(1, 1))       # corner cut away
-    assert polygon.contains(Point(50, 30))         # center intact
+    assert not polygon.contains(Point(1, 1))  # corner cut away
+    assert polygon.contains(Point(50, 30))  # center intact
 
 
 def test_rounded_rect_radii_clamped_and_defaulted():
     from lxml import etree
+
     parser = SVGParser()
     # ry omitted -> equals rx; rx larger than half width -> clamped.
     element = etree.fromstring('<rect x="0" y="0" width="20" height="40" rx="50" />')
@@ -343,9 +360,9 @@ def test_fill_inherited_from_ancestor_group(tmp_path):
 
     parser = SVGParser()
     shapes, _, _ = parser.load_svg(str(file_path))
-    assert shapes[0].metadata['fill'] == '#123456'      # inherited
-    assert shapes[1].metadata['fill'] == '#ff0000'      # own wins
-    assert shapes[2].metadata['fill'] == 'rgb(1,2,3)'   # inherited from style
+    assert shapes[0].metadata["fill"] == "#123456"  # inherited
+    assert shapes[1].metadata["fill"] == "#ff0000"  # own wins
+    assert shapes[2].metadata["fill"] == "rgb(1,2,3)"  # inherited from style
 
 
 def test_stroke_footprint_grows_geometry(tmp_path):
@@ -384,6 +401,7 @@ def test_stroke_footprint_creates_conflicts_between_near_shapes(tmp_path):
     file_path.write_text(svg_content)
 
     from diastasis.geometry_engine import GeometryEngine
+
     engine = GeometryEngine(use_spatial_index=True)
 
     plain_shapes, _, _ = SVGParser().load_svg(str(file_path))
@@ -411,9 +429,9 @@ def test_use_inherits_paint_from_use_element(tmp_path):
     file_path.write_text(svg_content)
 
     shapes, _, _ = SVGParser().load_svg(str(file_path))
-    assert shapes[0].metadata['fill'] == '#ff0000'
-    assert shapes[0].metadata['stroke'] == '#0000ff'
-    assert shapes[1].metadata['fill'] == '#00ff00'  # inherited via the use's ancestor
+    assert shapes[0].metadata["fill"] == "#ff0000"
+    assert shapes[0].metadata["stroke"] == "#0000ff"
+    assert shapes[1].metadata["fill"] == "#00ff00"  # inherited via the use's ancestor
 
     # include_strokes must also honor the use element's stroke.
     stroked, _, _ = SVGParser(include_strokes=True).load_svg(str(file_path))
@@ -422,13 +440,15 @@ def test_use_inherits_paint_from_use_element(tmp_path):
 
 def test_style_overrides_presentation_attribute():
     from lxml import etree
+
     parser = SVGParser()
     element = etree.fromstring('<rect fill="red" style="fill:blue" width="1" height="1" />')
-    assert parser._own_paint(element, 'fill') == 'blue'
+    assert parser._own_paint(element, "fill") == "blue"
 
 
 def test_negative_corner_radius_treated_as_auto():
     from lxml import etree
+
     parser = SVGParser()
     element = etree.fromstring('<rect x="0" y="0" width="20" height="40" rx="-5" ry="3" />')
     assert parser._rect_corner_radii(element, 20, 40) == (3.0, 3.0)

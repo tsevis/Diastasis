@@ -107,6 +107,7 @@ def test_export_escapes_malicious_attribute_values(tmp_path):
 
     # The output must still be well-formed XML.
     from lxml import etree
+
     etree.fromstring(content.encode())
 
 
@@ -123,17 +124,19 @@ def test_shape_element_markup_escapes_native_attrs_and_fill():
 
 def test_layer_color_map_is_deterministic_beyond_base_palette():
     from diastasis.svg_export import build_layer_color_map
+
     ids = list(range(30))
     first = build_layer_color_map(ids)
     second = build_layer_color_map(ids)
     assert first == second
     # All colors are well-formed hex and distinct.
-    assert all(len(c) == 7 and c.startswith('#') for c in first.values())
+    assert all(len(c) == 7 and c.startswith("#") for c in first.values())
     assert len(set(first[i] for i in ids)) == len(ids)
 
 
 def test_build_layered_svg_string_matches_saved_file(tmp_path):
     from diastasis.svg_export import build_layered_svg_string
+
     shapes = [
         Shape(id=0, geometry=box(0, 0, 10, 10), metadata={"fill": "#112233"}),
         Shape(id=1, geometry=box(5, 0, 15, 10), metadata={"fill": "#445566"}),
@@ -144,12 +147,19 @@ def test_build_layered_svg_string_matches_saved_file(tmp_path):
         shapes, coloring, 100, 100, preserve_original_colors=True, export_profile="Print"
     )
     save_layers_to_files(
-        shapes, coloring, str(tmp_path), "same", 100, 100,
-        preserve_original_colors=True, export_profile="Print",
+        shapes,
+        coloring,
+        str(tmp_path),
+        "same",
+        100,
+        100,
+        preserve_original_colors=True,
+        export_profile="Print",
     )
     assert content == (tmp_path / "same_layered.svg").read_text()
 
     # The string is a renderable, well-formed document.
     from lxml import etree
+
     root = etree.fromstring(content.encode())
     assert root.tag.endswith("svg")

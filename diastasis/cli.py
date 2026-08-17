@@ -6,6 +6,7 @@ Examples:
     python cli.py artwork.svg -o output/ --mode flat --separate-files
     python cli.py --batch input_folder/ -o output/ --profile Print
 """
+
 import argparse
 import os
 import sys
@@ -33,63 +34,87 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--batch", metavar="FOLDER", help="Process every .svg file in FOLDER.")
     parser.add_argument("-o", "--output", default="output", help="Output directory (default: output).")
     parser.add_argument(
-        "--mode", choices=("overlaid", "flat", "color"), default="overlaid",
+        "--mode",
+        choices=("overlaid", "flat", "color"),
+        default="overlaid",
         help="overlaid: overlap-aware layering. flat: strict area-exclusive separation. "
-             "color: one plate per ink color (screen-print / vinyl style).",
+        "color: one plate per ink color (screen-print / vinyl style).",
     )
     parser.add_argument(
-        "--algorithm", choices=GraphSolver.AVAILABLE_ALGORITHMS, default="minimum_layers",
+        "--algorithm",
+        choices=GraphSolver.AVAILABLE_ALGORITHMS,
+        default="minimum_layers",
         help="Coloring algorithm for the active mode (default: minimum_layers).",
     )
     parser.add_argument(
-        "--num-layers", type=int, default=None,
+        "--num-layers",
+        type=int,
+        default=None,
         help="Target layer count, required by the force_k algorithm.",
     )
     parser.add_argument(
-        "--touch-policy", choices=sorted(TOUCH_POLICIES), default="strict",
+        "--touch-policy",
+        choices=sorted(TOUCH_POLICIES),
+        default="strict",
         help="flat mode: strict = any contact conflicts; corners = corner-only touches may share a layer.",
     )
     parser.add_argument(
-        "--priority", choices=PRIORITY_ORDERS, default="source",
+        "--priority",
+        choices=PRIORITY_ORDERS,
+        default="source",
         help="flat mode: which shape keeps contested area (default: source order).",
     )
     parser.add_argument("--clip", action="store_true", help="Clip shapes to visible boundaries first.")
     parser.add_argument(
-        "--include-strokes", action="store_true",
+        "--include-strokes",
+        action="store_true",
         help="Treat each shape's painted footprint (fill + stroke width) as its geometry.",
     )
     parser.add_argument("--performance", action="store_true", help="Simplify geometry on very large files.")
     parser.add_argument(
-        "--drop-slivers", type=float, default=0.0, metavar="RATIO",
+        "--drop-slivers",
+        type=float,
+        default=0.0,
+        metavar="RATIO",
         help="flat mode: drop fragments smaller than RATIO of the canvas area (e.g. 0.0001).",
     )
     parser.add_argument(
-        "--color-tolerance", type=float, default=0.0, metavar="DIST",
+        "--color-tolerance",
+        type=float,
+        default=0.0,
+        metavar="DIST",
         help="color mode: merge fills within DIST RGB distance onto one plate (0 = exact).",
     )
     parser.add_argument(
-        "--unify-plate-colors", action="store_true",
+        "--unify-plate-colors",
+        action="store_true",
         help="color mode: repaint every shape with its plate's representative ink.",
     )
     parser.add_argument(
-        "--merge-fragments", action="store_true",
+        "--merge-fragments",
+        action="store_true",
         help="Union touching same-color shapes within each layer into one path per ink.",
     )
     parser.add_argument(
-        "--single-clipped-layer", action="store_true",
+        "--single-clipped-layer",
+        action="store_true",
         help="Also write one flat SVG with every result shape on a single layer "
-             "(pairs with --clip for a non-overlapping clipped export).",
+        "(pairs with --clip for a non-overlapping clipped export).",
     )
     parser.add_argument(
-        "--profile", choices=sorted(EXPORT_PROFILES), default="Illustrator-safe",
+        "--profile",
+        choices=sorted(EXPORT_PROFILES),
+        default="Illustrator-safe",
         help="Export profile (default: Illustrator-safe).",
     )
     parser.add_argument(
-        "--recolor", action="store_true",
+        "--recolor",
+        action="store_true",
         help="Fill each layer with a distinct color instead of preserving original fills.",
     )
     parser.add_argument(
-        "--separate-files", action="store_true",
+        "--separate-files",
+        action="store_true",
         help="Also write one registered SVG file per layer.",
     )
     parser.add_argument("--estimate", action="store_true", help="Print a complexity estimate and exit.")
@@ -125,21 +150,29 @@ def _process_file(svg_path: str, args: argparse.Namespace) -> bool:
 
         shapes, grouped_coloring, summary, width, height = result
         save_layers_to_files(
-            shapes, grouped_coloring, args.output, name, width, height,
+            shapes,
+            grouped_coloring,
+            args.output,
+            name,
+            width,
+            height,
             preserve_original_colors=not args.recolor,
             export_profile=args.profile,
         )
         if args.separate_files:
             save_layers_to_separate_files(
-                shapes, grouped_coloring, args.output, name, width, height,
+                shapes,
+                grouped_coloring,
+                args.output,
+                name,
+                width,
+                height,
                 preserve_original_colors=not args.recolor,
                 export_profile=args.profile,
             )
         if args.single_clipped_layer:
             # args.output already exists here (save_layers_to_files created it).
-            save_single_layer_file(
-                shapes, os.path.join(args.output, f"{name}_clipped.svg"), width, height
-            )
+            save_single_layer_file(shapes, os.path.join(args.output, f"{name}_clipped.svg"), width, height)
     except Exception as exc:
         # A bad file must not abort a batch run or leak a traceback.
         print(f"error: {svg_path}: {exc}", file=sys.stderr)
@@ -153,9 +186,7 @@ def _process_file(svg_path: str, args: argparse.Namespace) -> bool:
 
 def _batch_inputs(folder: str) -> List[str]:
     return sorted(
-        os.path.join(folder, entry)
-        for entry in os.listdir(folder)
-        if entry.lower().endswith(".svg")
+        os.path.join(folder, entry) for entry in os.listdir(folder) if entry.lower().endswith(".svg")
     )
 
 

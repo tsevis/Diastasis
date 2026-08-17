@@ -131,9 +131,13 @@ class DiastasisGUI:
 
         estimate_frame = ttk.Frame(left_frame)
         estimate_frame.pack(fill=tk.X, pady=(0, 8))
-        self.estimate_button = ttk.Button(estimate_frame, text="Estimate Complexity", command=self.estimate_complexity)
+        self.estimate_button = ttk.Button(
+            estimate_frame, text="Estimate Complexity", command=self.estimate_complexity
+        )
         self.estimate_button.pack(side=tk.LEFT)
-        self.batch_button = ttk.Button(estimate_frame, text="Batch Process Folder", command=self.batch_process_folder)
+        self.batch_button = ttk.Button(
+            estimate_frame, text="Batch Process Folder", command=self.batch_process_folder
+        )
         self.batch_button.pack(side=tk.LEFT, padx=(8, 0))
 
         self.estimate_label = ttk.Label(
@@ -213,7 +217,9 @@ class DiastasisGUI:
         save_frame = ttk.Frame(left_frame)
         save_frame.pack(fill=tk.X, pady=(10, 0))
 
-        self.save_button = ttk.Button(save_frame, text="Save Layers As...", command=self.save_layers, state="disabled")
+        self.save_button = ttk.Button(
+            save_frame, text="Save Layers As...", command=self.save_layers, state="disabled"
+        )
         self.save_button.pack(anchor=tk.CENTER)
         self.save_single_button = ttk.Button(
             save_frame,
@@ -385,7 +391,9 @@ class DiastasisGUI:
             self.preview_image = ImageTk.PhotoImage(resized_image)
 
             self.preview_canvas.delete("all")
-            self.preview_canvas.create_image(canvas_width // 2, canvas_height // 2, image=self.preview_image, anchor=tk.CENTER)
+            self.preview_canvas.create_image(
+                canvas_width // 2, canvas_height // 2, image=self.preview_image, anchor=tk.CENTER
+            )
         except Exception as exc:
             print(f"Error displaying preview: {exc}")
             self.preview_canvas.delete("all")
@@ -522,7 +530,8 @@ class DiastasisGUI:
 
     def _run_batch_thread(self, input_dir, output_dir, mode):
         svg_files = sorted(
-            f for f in os.listdir(input_dir)
+            f
+            for f in os.listdir(input_dir)
             if f.lower().endswith(".svg") and os.path.isfile(os.path.join(input_dir, f))
         )
         if not svg_files:
@@ -587,9 +596,7 @@ class DiastasisGUI:
         algorithm = self.algorithm.get()
         flat_algorithm = self.flat_algorithm.get()
         flat_touch_policy = (
-            "edge_or_overlap"
-            if self.flat_touch_policy.get() == "Allow corner touching"
-            else "any_touch"
+            "edge_or_overlap" if self.flat_touch_policy.get() == "Allow corner touching" else "any_touch"
         )
         flat_priority_order = {
             "Source order": "source",
