@@ -19,7 +19,12 @@ classifiers = [
 ]
 dependencies = [
     "svgpathtools>=1.7.2",
-    "shapely>=2.0",
+    # `!=2.1.0`, not a ceiling. Measured 2026-09-19 on this hardware, median
+    # of 3, `Point.buffer(quad_segs=64)` intersection x20,000:
+    #   2.0.7  40.23 us/call   2.1.0  63.52 us/call (1.58x)   2.1.2  44.87 us/call
+    # 2.1.2 closes 79% of the gap, so only the one pathological release is
+    # excluded. mozaix, cgmcreator, shapearator and heron carry the same line.
+    "shapely>=2.0,!=2.1.0",
     "rtree>=1.0",
     "networkx>=3.0",
     "numpy>=1.24",
@@ -38,6 +43,9 @@ dev = [
     # checks would otherwise fail CI on an unrelated commit.
     "ruff>=0.15,<0.16",
     "mypy>=2.3,<3",
+    # `scripts/floor_constraints.py` and its test read pyproject.toml, and
+    # `tomllib` arrived in 3.11 while this project still supports 3.10.
+    "tomli>=2.0; python_version < '3.11'",
 ]
 
 [project.urls]

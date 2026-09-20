@@ -11,3 +11,9 @@ __pycache__/
 # Local tool metadata
 .claude/
 .nanocoder/
+
+# Generated packaging metadata. It was committed and had already
+# drifted: its requires.txt said `ruff>=0.4` while pyproject.toml said
+# `ruff>=0.15,<0.16` and declared mypy that it never mentioned. A generated
+# copy of the declarations is a third source of truth that nobody updates.
+*.egg-info/
