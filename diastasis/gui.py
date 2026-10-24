@@ -1,8 +1,10 @@
 import io
+import logging
 import os
 import threading
 import traceback
 import tkinter as tk
+from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from cairosvg import svg2png
@@ -19,6 +21,19 @@ from .main import (
     save_single_layer_file,
 )
 
+logger = logging.getLogger(__name__)
+
+ICON_PATH = Path(__file__).resolve().parent / "assets" / "AppIcon-256.png"
+
+
+def set_app_icon(root):
+    """Give the window its app icon; a missing or unreadable file costs only the icon."""
+    try:
+        root._app_icon = tk.PhotoImage(master=root, file=str(ICON_PATH))
+        root.iconphoto(True, root._app_icon)
+    except (tk.TclError, OSError) as exc:
+        logger.warning("Could not load app icon %s: %s", ICON_PATH, exc)
+
 
 class DiastasisGUI:
     def __init__(self, root):
@@ -26,6 +41,7 @@ class DiastasisGUI:
         self.root.title("Mozaix Diastasis")
         self.root.geometry("1200x800")
         self.root.minsize(1024, 720)
+        set_app_icon(self.root)
 
         self.style = ttk.Style(self.root)
         self._appearance = "auto"
