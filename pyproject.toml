@@ -58,6 +58,9 @@ diastasis = "diastasis.cli:main"
 [tool.setuptools]
 packages = ["diastasis"]
 
+[tool.setuptools.package-data]
+diastasis = ["assets/*"]
+
 [tool.ruff]
 line-length = 110
 target-version = "py310"
