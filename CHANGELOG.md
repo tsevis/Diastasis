@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Trapping for color separation (`--trap-width UNITS` / `trap_width=`, GUI
+  Color tab): each ink spreads under its neighbours on the plates printed
+  after it, clipped to their footprint, so slight misregistration shows no
+  bare paper. `--trap-order luminance|plate` picks which ink prints on top
+  (default: darker over lighter). Color mode only; other modes reject it.
+
 ## [0.6.0] - 2026-07-17
 
 ### Added

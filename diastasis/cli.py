@@ -14,6 +14,7 @@ from typing import List, Optional
 
 from .graph_solver import GraphSolver
 from .main import estimate_processing_complexity, run_diastasis
+from .trapping import TRAP_ORDERS
 from .svg_export import (
     EXPORT_PROFILES,
     save_layers_to_files,
@@ -91,6 +92,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="color mode: repaint every shape with its plate's representative ink.",
     )
     parser.add_argument(
+        "--trap-width",
+        type=float,
+        default=0.0,
+        metavar="UNITS",
+        help="color mode: spread each ink this far (SVG user units) under the inks printed after it, "
+        "so slight misregistration shows no bare paper (0 = off).",
+    )
+    parser.add_argument(
+        "--trap-order",
+        choices=TRAP_ORDERS,
+        default="luminance",
+        help="color mode: which ink prints on top. luminance: darker over lighter (default). "
+        "plate: later plates over earlier ones.",
+    )
+    parser.add_argument(
         "--merge-fragments",
         action="store_true",
         help="Union touching same-color shapes within each layer into one path per ink.",
@@ -143,6 +159,8 @@ def _process_file(svg_path: str, args: argparse.Namespace) -> bool:
             color_tolerance=args.color_tolerance,
             unify_plate_colors=args.unify_plate_colors,
             merge_fragments=args.merge_fragments,
+            trap_width=args.trap_width,
+            trap_order=args.trap_order,
         )
         if result[0] is None:
             print(f"error: {svg_path}: {result[2]}", file=sys.stderr)
@@ -198,6 +216,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
     if args.algorithm == "force_k" and (args.num_layers is None or args.num_layers <= 0):
         print("error: --num-layers is required (and must be positive) with force_k", file=sys.stderr)
+        return 2
+    if args.trap_width < 0:
+        print("error: --trap-width must not be negative", file=sys.stderr)
+        return 2
+    if args.trap_width > 0 and args.mode != "color":
+        print("error: --trap-width needs --mode color (one plate per ink)", file=sys.stderr)
         return 2
     if args.input and not os.path.isfile(args.input):
         print(f"error: input file not found: {args.input}", file=sys.stderr)
