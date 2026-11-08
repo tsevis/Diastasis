@@ -6,6 +6,7 @@ from shapely.ops import unary_union
 from .graph_solver import GraphSolver
 from .svg_parser import SVGParser, Shape
 from .geometry_engine import GeometryEngine
+from .trapping import trap_plates
 from .geometry_ops import (
     safe_difference as _safe_difference,
     safe_unary_union as _safe_unary_union,  # noqa: F401
@@ -372,7 +373,14 @@ def run_diastasis(
     color_tolerance=0.0,
     unify_plate_colors=False,
     merge_fragments=False,
+    trap_width=0.0,
+    trap_order="luminance",
 ):
+    if trap_width < 0:
+        return None, None, "Trap width must not be negative."
+    if trap_width > 0 and mode != "color":
+        return None, None, "Trapping needs color separation mode (one plate per ink)."
+
     parser = SVGParser(include_strokes=include_strokes)
     shapes, svg_width, svg_height = parser.load_svg(svg_filepath)
 
@@ -417,6 +425,18 @@ def run_diastasis(
             coloring = {sid: pid for pid, sids in grouped_coloring.items() for sid in sids}
             merged_note = f"Same-color fragments merged: {before} -> {len(shapes)} shapes\n"
 
+        trap_note = ""
+        if trap_width > 0:
+            untrapped = shapes
+            shapes = trap_plates(shapes, grouped_coloring, representatives, trap_width, order=trap_order)
+            trapped = sum(
+                1 for before_shape, after_shape in zip(untrapped, shapes) if before_shape is not after_shape
+            )
+            trap_note = (
+                f"Trapping: {trapped} shapes spread {trap_width:g} units under the plates printed after them "
+                f"({trap_order} order)\n"
+            )
+
         num_plates = len(grouped_coloring)
         summary = f"Processing complete (Color Separation). {num_plates} color plates.\n"
         summary += f"Visible boundary clipping: {'Enabled' if clip_visible_boundaries else 'Disabled'}\n"
@@ -435,6 +455,7 @@ def run_diastasis(
         if unresolved_count:
             summary += f"Shapes with no resolvable fill: {unresolved_count} (grouped as one plate)\n"
         summary += merged_note
+        summary += trap_note
 
         summary += "\nPlate inks:\n"
         plate_counts: Dict[int, int] = defaultdict(int)

@@ -8,7 +8,8 @@ Diastasis separates complex SVG artwork into production-ready layers.
   - `Overlaid Complexity`: overlap-aware layering.
   - `Flat Complexity`: strict area-exclusive separation.
   - `Color Separation`: one plate per ink color (screen-print / vinyl /
-    risograph), with tolerance-based merging to minimize plate count.
+    risograph), with tolerance-based merging to minimize plate count and
+    optional trapping (`--trap-width`) against misregistration.
 - `minimum_layers` algorithm (default): portfolio of coloring strategies,
   iterated refinement, and exact search on small graphs — the summary states
   when the layer count is provably the minimum possible.
@@ -89,6 +90,9 @@ diastasis --batch input_folder/ -o output/ --profile Print
 
 # Color separation: one plate per ink, merge near colors, unify to a single ink
 diastasis artwork.svg -o output/ --mode color --color-tolerance 12 --unify-plate-colors
+
+# Trap the plates: spread lighter inks under darker ones to survive misregistration
+diastasis artwork.svg -o output/ --mode color --trap-width 0.5
 
 # Clean cut/print plates: one path per ink with seams between tiles removed
 diastasis artwork.svg -o output/ --mode color --merge-fragments

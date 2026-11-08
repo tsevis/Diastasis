@@ -61,6 +61,8 @@ class DiastasisGUI:
         self.flat_min_fragment = tk.StringVar(value="0")
         self.color_tolerance = tk.StringVar(value="0")
         self.unify_plate_colors = tk.BooleanVar(value=False)
+        self.trap_width = tk.StringVar(value="0")
+        self.trap_order = tk.StringVar(value="Darker over lighter")
         self.preview_mode = tk.StringVar(value="Original")
         self.quality_preset = tk.StringVar(value="Balanced")
         self.export_profile = tk.StringVar(value="Illustrator-safe")
@@ -637,6 +639,9 @@ class DiastasisGUI:
             color_tolerance=self._safe_float(self.color_tolerance),
             unify_plate_colors=self.unify_plate_colors.get(),
             merge_fragments=self.merge_fragments.get(),
+            # Trapping only means something with one plate per ink.
+            trap_width=self._safe_float(self.trap_width) if mode == "color" else 0.0,
+            trap_order="plate" if self.trap_order.get() == "Plate order" else "luminance",
         )
 
     def save_layers(self):

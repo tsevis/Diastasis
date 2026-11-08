@@ -181,10 +181,35 @@ color — the model print production actually uses.
 - **Unify plate colors** (`--unify-plate-colors`): repaint every shape with
   its plate's representative (average) ink, producing true single-ink plates.
 - Shapes with no resolvable fill are collected onto one plate.
+- **Trap width** (`--trap-width UNITS`, default `0` = off): see below.
 
 The summary lists each plate's ink and shape count, so you can see the ink
 budget at a glance. Combine with `Save Layers As Separate Files...` to emit one
 registered SVG per plate.
+
+## Trapping (misregistration)
+
+Where two inks only touch, a press that is slightly off leaves a gap of bare
+paper between them. `--trap-width UNITS` (GUI: Trap width on the Color tab)
+spreads each ink that distance under its neighbours on the plates printed
+after it. The upper ink keeps its edge, so the visible outline does not move.
+
+- The width is in SVG user units, the same coordinates as the artwork.
+- The spread is clipped to the upper ink's own footprint: it never reaches
+  bare paper and never changes a plate's outer silhouette.
+- `--trap-order luminance` (default) prints the lightest ink first, so lighter
+  inks spread under darker ones. `--trap-order plate` follows plate order
+  instead, for a press run in a sequence you chose.
+- Shapes on the same plate never trap each other, and the no-fill plate is
+  skipped. Where shapes already overlap in the artwork, nothing changes: the
+  lower ink already runs under the upper one.
+- Color mode only. `--trap-width` with any other mode is an error, not a
+  silent no-op.
+- Translucent inks (riso) mix where plates overlap, so the trap strip shows as
+  a slightly darker seam. That is the usual trade-off of a trap.
+
+This is spread only; choking is the same operation seen from the other plate.
+It has been checked against synthetic cases, not on a physical press.
 
 ## Merge Touching Same-Color Fragments
 

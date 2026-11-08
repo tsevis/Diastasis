@@ -141,6 +141,18 @@ def build_color_tab(app):
         variable=app.unify_plate_colors,
     ).pack(anchor=tk.W)
 
+    trap_frame = ttk.Frame(app.color_tab)
+    trap_frame.pack(fill=tk.X, pady=(0, 8), padx=4)
+    ttk.Label(trap_frame, text="Trap width (SVG units, 0 = off):").pack(side=tk.LEFT, padx=(0, 8))
+    ttk.Entry(trap_frame, textvariable=app.trap_width, width=8).pack(side=tk.LEFT, padx=(0, 8))
+    ttk.Combobox(
+        trap_frame,
+        textvariable=app.trap_order,
+        values=["Darker over lighter", "Plate order"],
+        state="readonly",
+        width=20,
+    ).pack(side=tk.LEFT)
+
     info_frame = ttk.LabelFrame(app.color_tab, text="Color Separation Behavior")
     info_frame.pack(fill=tk.X, padx=4, pady=(0, 6))
     ttk.Label(
@@ -150,7 +162,8 @@ def build_color_tab(app):
             "Merge tolerance groups near-identical inks onto one plate to cut plate\n"
             "count (0 = exact match only). Unify repaints each shape with its plate's\n"
             "representative ink for true single-ink plates. Shapes with no fill are\n"
-            "collected onto one plate."
+            "collected onto one plate. Trap width spreads each ink under the inks\n"
+            "printed after it, so slight misregistration shows no bare paper."
         ),
         wraplength=410,
         justify=tk.LEFT,
